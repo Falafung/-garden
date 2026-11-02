@@ -227,6 +227,7 @@ function diagHtml(entry) {
 
 // ---------- หน้า ----------
 PAGES.journal = () => {
+  if (!Array.isArray(DB.journal)) DB.journal = [];
   if (!DB.plots.length) return `<div class="page-head"><h1>บันทึกสวน</h1></div><div class="card empty">ยังไม่มีแปลง — <a href="#plots">เพิ่มแปลงปลูก</a> พร้อมวันที่ปลูกก่อน แล้วกลับมาบันทึกได้เลย</div>`;
   if (!plotById(JN.plot)) JN.plot = DB.plots[0].id;
   const p = plotById(JN.plot);
@@ -353,6 +354,7 @@ window.jnPhoto = file => {
   img.src = URL.createObjectURL(file);
 };
 window.saveJournal = form => {
+  if (!Array.isArray(DB.journal)) DB.journal = [];
   const e = readJournalForm(form);
   const { followup, ...rec } = e;
   rec.plotId = JN.plot;
