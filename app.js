@@ -30,7 +30,7 @@ const DEFAULT_KB = [
 function emptyData() {
   return {
     settings: { farmName: 'สวนของฉัน', lat: null, lon: null, locName: '', theme: 'auto' },
-    plots: [], activities: [], finance: [], harvests: [], stock: [],
+    plots: [], activities: [], finance: [], harvests: [], stock: [], journal: [],
     knowledge: DEFAULT_KB.map(k => ({ id: uid(), ...k })),
   };
 }
