@@ -228,6 +228,16 @@ tr:last-child td { border-bottom: none; }
   padding: .35rem .55rem; border-radius: 8px; font-size: .82rem; white-space: nowrap; display: none;
 }
 
+/* sync */
+.sync-badge { text-decoration: none; font-size: .85rem; margin-left: .4rem; padding: .05rem .4rem; border-radius: 999px; background: var(--surface-2); color: var(--text-2); }
+.sync-badge.good { color: var(--good); }
+.sync-badge.warn { color: var(--warn); }
+.sync-badge.bad { color: var(--bad); }
+.sync-card code { font-size: .85em; background: var(--surface-2); padding: 0 .25rem; border-radius: 4px; }
+label.field.inline-check { display: flex; align-items: flex-start; gap: .5rem; }
+label.field.inline-check > input { margin-top: .3rem; flex: none; }
+label.field.inline-check > span { display: inline; color: var(--text); font-size: .95rem; }
+
 /* stock locations */
 .loc-tabs { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
 .loc-tab { flex: none; font: inherit; cursor: pointer; padding: .4rem .8rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600; }

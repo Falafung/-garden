@@ -7,11 +7,11 @@
 <meta name="description" content="จัดการแปลงปลูก บันทึกกิจกรรม พยากรณ์ฝน คลังความรู้ และบัญชีรายรับรายจ่ายของสวน">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="logo" aria-hidden="true">🌿</span><span id="farmName">สมุดสวน</span></div>
+  <div class="brand"><span class="logo" aria-hidden="true">🌿</span><span id="farmName">สมุดสวน</span><span id="syncBadge"></span></div>
   <nav class="tabs" id="tabs">
     <a href="#dashboard" data-tab="dashboard">ภาพรวม</a>
     <a href="#journal" data-tab="journal">บันทึกสวน</a>
@@ -41,7 +41,9 @@
 
 <div id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=5"></script>
-<script src="journal.js?v=5"></script>
+<script src="firebase-config.js?v=6"></script>
+<script src="app.js?v=6"></script>
+<script src="journal.js?v=6"></script>
+<script type="module" src="sync.js?v=6"></script>
 </body>
 </html>
