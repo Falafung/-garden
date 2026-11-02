@@ -235,6 +235,10 @@ function render() {
   document.getElementById('farmName').textContent = DB.settings.farmName || 'สมุดสวน';
   const tab = currentTab();
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === tab));
+  const nDue = DB.activities.filter(a => !a.done && a.date <= todayStr()).length;
+  const calTab = document.querySelector('#tabs a[data-tab=calendar]');
+  if (calTab) calTab.innerHTML = 'ปฏิทินงาน' + (nDue ? ` <span class="badge" title="งานถึงกำหนด">${nDue}</span>` : '');
+  document.title = (nDue ? `(${nDue}) ` : '') + 'สมุดสวน';
   let html;
   try { html = PAGES[tab](); }
   catch (e) {
@@ -258,7 +262,7 @@ PAGES.dashboard = () => {
   const finMonth = DB.finance.filter(f => monthKey(f.date) === mk);
   const inc = finMonth.filter(f => f.type === 'in').reduce((a, f) => a + +f.amount, 0);
   const exp = finMonth.filter(f => f.type === 'out').reduce((a, f) => a + +f.amount, 0);
-  const pending = DB.activities.filter(a => !a.done && a.date <= addDays(today, 7)).sort((a, b) => a.date.localeCompare(b.date));
+  const pending = DB.activities.filter(a => !a.done && a.date > today && a.date <= addDays(today, 7)).sort((a, b) => a.date.localeCompare(b.date));
   const recent = DB.activities.filter(a => a.done).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
   const lowStock = DB.stock.filter(s => s.minQty !== '' && s.minQty != null && +s.qty <= +s.minQty);
 
@@ -280,6 +284,7 @@ PAGES.dashboard = () => {
   <div class="page-head"><h1>ภาพรวมสวน</h1><div class="row">
     <button class="btn primary" onclick="editActivity()">+ บันทึกงาน</button>
     <button class="btn" onclick="editFinance()">+ รายรับ/จ่าย</button></div></div>
+  ${(() => { const due = dueReminders(); return due.length ? `<div class="card alert-card" style="margin-bottom:12px"><h2>🔔 แจ้งเตือน: ถึงกำหนดแล้ว ${due.length} งาน<a class="small" href="#calendar">ปฏิทิน →</a></h2><ul class="list">${due.slice(0, 6).map(reminderLi).join('')}</ul>${due.length > 6 ? `<a class="small" href="#calendar">ดูทั้งหมด ${due.length} งาน →</a>` : ''}</div>` : ''; })()}
   <div class="grid cols-4">
     <div class="card stat"><div class="label">แปลงปลูก</div><div class="value">${DB.plots.length}</div><div class="sub">${fmtNum(totalTrees)} ต้น</div></div>
     <div class="card stat"><div class="label">พื้นที่รวม</div><div class="value" style="font-size:1.25rem">${fmtArea(totalWa)}</div><div class="sub">${fmtNum(totalWa * SQM_PER_WA)} ตร.ม.</div></div>
@@ -288,8 +293,8 @@ PAGES.dashboard = () => {
   </div>
   <div class="grid cols-2" style="margin-top:12px">
     <div class="card"><h2>🌦️ ลมฝนวันนี้</h2>${wxCard}</div>
-    <div class="card"><h2>📋 งานที่ต้องทำ (7 วันข้างหน้า)<a class="small" href="#calendar">ปฏิทิน →</a></h2>
-      ${pending.length ? `<ul class="list">${pending.slice(0, 8).map(activityLi).join('')}</ul>` : '<div class="empty">ไม่มีงานค้าง 🎉</div>'}</div>
+    <div class="card"><h2>📋 งานที่จะถึง (7 วันข้างหน้า)<a class="small" href="#calendar">ปฏิทิน →</a></h2>
+      ${pending.length ? `<ul class="list">${pending.slice(0, 8).map(activityLi).join('')}</ul>` : '<div class="empty">ไม่มีงานในสัปดาห์นี้</div>'}</div>
     <div class="card"><h2>✅ งานที่ทำล่าสุด</h2>
       ${recent.length ? `<ul class="list">${recent.map(activityLi).join('')}</ul>` : '<div class="empty">ยังไม่มีบันทึก</div>'}</div>
     <div class="card"><h2>📦 วัสดุใกล้หมด<a class="small" href="#stock">คลัง →</a></h2>
@@ -302,7 +307,7 @@ function activityLi(a) {
   const status = a.done ? '' : a.date < today ? '<span class="pill bad">เลยกำหนด</span>' : a.date === today ? '<span class="pill warn">วันนี้</span>' : '<span class="pill">แผนงาน</span>';
   return `<li>
     <input type="checkbox" ${a.done ? 'checked' : ''} onchange="toggleDone('${a.id}')" title="ทำแล้ว" style="width:auto;margin-top:.3rem">
-    <div class="grow"><div><span class="dot" style="background:${plotColor(a.plotId)}"></span><b>${esc(a.type)}</b> · ${esc(plotName(a.plotId))} ${status}</div>
+    <div class="grow"><div><span class="dot" style="background:${plotColor(a.plotId)}"></span><b>${esc(a.type)}</b> · ${esc(plotName(a.plotId))} ${status}${a.time && !a.done ? ` <span class="small muted">⏰ ${esc(a.time)}</span>` : ''}${a.repeatDays ? ` <span class="small muted" title="ทำซ้ำ">🔁 ${a.repeatDays} วัน</span>` : ''}${a.fromId && !a.done ? ' <span class="small muted" title="การเตือนติดตามผล">🔔</span>' : ''}${rainWarn(a)}</div>
       <div class="small muted">${fmtDate(a.date)}${a.detail ? ' — ' + esc(a.detail) : ''}${a.stockId ? ` · ใช้ ${esc(DB.stock.find(s => s.id === a.stockId)?.name || '?')} ${fmtNum(a.stockQty, 2)}` : ''}</div></div>
     <button class="icon-btn" title="แก้ไข" onclick="editActivity('${a.id}')">✏️</button>
     <button class="icon-btn" title="ลบ" onclick="deleteActivity('${a.id}')">🗑️</button></li>`;
@@ -389,7 +394,7 @@ PAGES.calendar = () => {
     if (i >= 35 && d.getMonth() !== m - 1) break;
     cells += `<button class="cal-day ${d.getMonth() !== m - 1 ? 'other' : ''} ${s === today ? 'today' : ''} ${s === CAL.selected ? 'selected' : ''}" onclick="calSelect('${s}')">
       <span class="num">${d.getDate()}</span>
-      ${list.slice(0, 3).map(a => `<span class="cal-ev ${a.done ? '' : 'plan'}" style="--plot-color:${plotColor(a.plotId)}">${esc(a.type)}</span>`).join('')}
+      ${list.slice(0, 3).map(a => `<span class="cal-ev ${a.done ? '' : 'plan'}" style="--plot-color:${plotColor(a.plotId)}">${a.done ? '' : '🔔'}${esc(a.type)}</span>`).join('')}
       ${list.length > 3 ? `<span class="cal-more">+${list.length - 3}</span>` : ''}</button>`;
   }
   const dayList = (byDate[CAL.selected] || []);
@@ -408,11 +413,14 @@ PAGES.calendar = () => {
           <button class="btn small" onclick="CAL.month=monthKey(todayStr());CAL.selected=todayStr();render()">วันนี้</button>
         </div>
         <div class="cal-grid">${cells}</div>
-        <p class="small muted" style="margin:.5rem 0 0">กรอบทึบ = ทำแล้ว · กรอบเส้นประ = แผนงานที่ยังไม่ทำ · สีตามแปลง</p>
+        <p class="small muted" style="margin:.5rem 0 0">กรอบทึบ = ทำแล้ว · 🔔 = การเตือน/แผนงานที่ยังไม่ทำ · สีตามแปลง</p>
       </div>
       <div class="grid">
         <div class="card"><h2>${fmtDate(CAL.selected)}<button class="btn small" onclick="editActivity(null, CAL.plot, CAL.selected)">+ เพิ่ม</button></h2>
           ${dayList.length ? `<ul class="list">${dayList.map(activityLi).join('')}</ul>` : '<div class="empty">ไม่มีบันทึกในวันนี้</div>'}</div>
+        <div class="card"><h2>🔔 การเตือน<button class="btn small" onclick="icsAll()" title="ส่งออกการเตือนทั้งหมดเป็นไฟล์ .ics">📲 ลงปฏิทินมือถือ</button></h2>
+          ${(() => { const list = DB.activities.filter(a => !a.done && a.date <= addDays(today, 14) && (!CAL.plot || a.plotId === CAL.plot)).sort((a, b) => a.date.localeCompare(b.date)); return list.length ? `<ul class="list">${list.slice(0, 12).map(reminderLi).join('')}</ul>` : '<div class="empty">ไม่มีการเตือนใน 14 วันข้างหน้า</div>'; })()}
+          <p class="small muted" style="margin:.4rem 0 0">กด 📲 เพื่อเพิ่มลงปฏิทินในมือถือ มือถือจะเด้งเตือนตามเวลาที่ตั้งไว้ (ไม่ได้ตั้งเวลา = 07:00 น.) และเตือนล่วงหน้า 1 วัน แม้ไม่ได้เปิดเว็บ</p></div>
         <div class="card"><h3>สรุปงานที่ทำในเดือนนี้</h3>
           ${Object.keys(counts).length ? `<table>${Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v} ครั้ง</td></tr>`).join('')}</table>` : '<div class="empty">ยังไม่มี</div>'}</div>
       </div>
@@ -424,45 +432,196 @@ window.calMove = n => {
   const d = new Date(y, m - 1 + n, 1);
   CAL.month = monthKey(ymd(d)); CAL.selected = ymd(d); render();
 };
+// ---------- การเตือน ----------
+const FOLLOWUPS = {
+  'พ่นยา/ฮอร์โมน': [[3, 'ตรวจโรค/แมลง', 'ตรวจผลหลังพ่นยา ยังมีแมลง/ไรเข้าอยู่ไหม'], [7, 'พ่นยา/ฮอร์โมน', 'พ่นยาซ้ำรอบถัดไป']],
+  'ใส่ปุ๋ย': [[7, 'ตรวจโรค/แมลง', 'ดูการตอบสนองหลังใส่ปุ๋ย สีใบ ใบอ่อน'], [30, 'ใส่ปุ๋ย', 'ใส่ปุ๋ยรอบถัดไป']],
+  'ตัดแต่งกิ่ง': [[7, 'ตรวจโรค/แมลง', 'ตรวจรอยตัด มีเชื้อราเข้าไหม'], [21, 'ตรวจโรค/แมลง', 'ดูใบอ่อนที่แตกใหม่ ระวังเพลี้ยไฟ/หนอน']],
+  'ปลูก/ปลูกซ่อม': [[3, 'รดน้ำ', 'รดน้ำต้นที่ปลูกใหม่'], [14, 'ตรวจโรค/แมลง', 'ตรวจการตั้งตัวของต้นที่ปลูกใหม่']],
+  'ตรวจโรค/แมลง': [[3, 'ตรวจโรค/แมลง', 'ตรวจซ้ำว่าอาการลุกลามไหม'], [7, 'พ่นยา/ฮอร์โมน', 'พ่นยาถ้ายังพบแมลง/โรค']],
+  'กำจัดวัชพืช': [[30, 'กำจัดวัชพืช', 'กำจัดวัชพืชรอบถัดไป']],
+  'เก็บเกี่ยว': [[7, 'ใส่ปุ๋ย', 'บำรุงต้นหลังเก็บเกี่ยว'], [14, 'ตัดแต่งกิ่ง', 'ตัดแต่งกิ่งหลังเก็บเกี่ยว']],
+  'รดน้ำ': [[3, 'รดน้ำ', 'รดน้ำรอบถัดไป']],
+};
+const REPEAT_OPTS = [['', 'ไม่ทำซ้ำ'], ['1', 'ทุกวัน'], ['3', 'ทุก 3 วัน'], ['7', 'ทุกสัปดาห์'], ['14', 'ทุก 2 สัปดาห์'], ['30', 'ทุกเดือน (30 วัน)']];
+function remRowHtml(days, type, detail, on) {
+  return `<div class="rem-row"><input type="checkbox" class="rem-on" ${on ? 'checked' : ''} title="เปิดการเตือนนี้">
+    <span class="small">อีก</span><input type="number" class="rem-days" min="1" value="${days}" style="width:4.2rem"><span class="small">วัน</span>
+    <select class="rem-type" style="width:auto">${options(ACTIVITY_TYPES, type)}</select>
+    <input class="rem-detail" value="${esc(detail)}" placeholder="เตือนเรื่องอะไร">
+    <span class="small muted rem-date"></span></div>`;
+}
+function remRowsHtml(type) { return (FOLLOWUPS[type] || []).map(([d, t, x]) => remRowHtml(d, t, x, false)).join(''); }
+window.remChangeType = type => { document.getElementById('remRows').innerHTML = remRowsHtml(type); remUpdateDates(); };
+window.remAddRow = () => { document.getElementById('remRows').insertAdjacentHTML('beforeend', remRowHtml(7, 'ตรวจโรค/แมลง', '', true)); remUpdateDates(); };
+window.remUpdateDates = () => {
+  const base = modal.querySelector('input[name=date]')?.value || todayStr();
+  modal.querySelectorAll('.rem-row').forEach(r => { const n = +r.querySelector('.rem-days').value || 0; r.querySelector('.rem-date').textContent = n ? '→ ' + fmtDate(addDays(base, n)) : ''; });
+};
+function dueReminders() {
+  const t = todayStr();
+  return DB.activities.filter(a => !a.done && a.date <= t).sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+}
+function rainWarn(a) {
+  if (a.done || !/พ่น|ใส่ปุ๋ย/.test(a.type) || !WX?.data?.daily) return '';
+  const i = WX.data.daily.time.indexOf(a.date);
+  if (i < 0) return '';
+  const pr = WX.data.daily.precipitation_probability_max[i] ?? 0;
+  return pr >= 60 ? ` <span class="pill bad" title="โอกาสฝนวันนั้น">🌧️ ฝน ${pr}% อาจเลื่อน</span>` : '';
+}
+// งานทำซ้ำ: เมื่อทำเสร็จ สร้างงานรอบถัดไปให้
+function spawnNext(a) {
+  if (!a.repeatDays || !a.done || (a.nextId && DB.activities.some(x => x.id === a.nextId))) return;
+  let next = addDays(a.date, +a.repeatDays);
+  if (next <= todayStr()) next = addDays(todayStr(), +a.repeatDays);
+  const n = { id: uid(), date: next, plotId: a.plotId, type: a.type, detail: a.detail, time: a.time || '', repeatDays: a.repeatDays, stockId: a.stockId, stockQty: a.stockQty, done: false, fromId: a.id };
+  DB.activities.push(n); a.nextId = n.id;
+}
+function unspawnNext(a) {
+  if (!a.nextId) return;
+  const n = DB.activities.find(x => x.id === a.nextId);
+  if (n && !n.done) DB.activities = DB.activities.filter(x => x.id !== n.id);
+  delete a.nextId;
+}
+window.snooze = (id, days) => {
+  const a = DB.activities.find(x => x.id === id);
+  a.date = addDays(todayStr(), days);
+  save(); render(); toast(`เลื่อนไป ${fmtDate(a.date)}`);
+};
+
+// ไฟล์ปฏิทิน (.ics) — นำเข้าปฏิทินมือถือ/Google Calendar เพื่อให้เด้งเตือนแม้ไม่ได้เปิดแอป
+function icsEsc(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\;'); }
+function icsStamp(date, time) { return date.replace(/-/g, '') + 'T' + (time || '07:00').replace(':', '') + '00'; }
+function icsEvent(a) {
+  const start = icsStamp(a.date, a.time);
+  const title = `${a.type} · ${plotName(a.plotId)}`;
+  const now = new Date();
+  const dtstamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}00Z`;
+  return ['BEGIN:VEVENT', `UID:${a.id}@suan`, `DTSTAMP:${dtstamp}`, `DTSTART:${start}`, 'DURATION:PT30M',
+    `SUMMARY:${icsEsc('🌿 ' + title)}`, `DESCRIPTION:${icsEsc(a.detail || 'งานสวนจากสมุดสวน')}`,
+    'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(title)}`, 'TRIGGER:PT0M', 'END:VALARM',
+    'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc('พรุ่งนี้: ' + title)}`, 'TRIGGER:-P1D', 'END:VALARM',
+    'END:VEVENT'].join('\r\n');
+}
+function icsFile(list) { return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//suan//TH', 'CALSCALE:GREGORIAN', ...list.map(icsEvent), 'END:VCALENDAR'].join('\r\n') + '\r\n'; }
+window.icsOne = id => { const a = DB.activities.find(x => x.id === id); download(`เตือน-${a.type.replace(/\//g, '-')}-${a.date}.ics`, icsFile([a]), 'text/calendar'); };
+window.icsAll = () => {
+  const list = DB.activities.filter(a => !a.done && a.date >= todayStr());
+  if (!list.length) return toast('ไม่มีการเตือนที่จะถึง');
+  download(`การเตือนสวน-${todayStr()}.ics`, icsFile(list), 'text/calendar');
+  toast(`ส่งออก ${list.length} รายการ — เปิดไฟล์เพื่อเพิ่มลงปฏิทิน`);
+};
+function gcalLink(a) {
+  const st = icsStamp(a.date, a.time);
+  const [hh, mm] = (a.time || '07:00').split(':').map(Number);
+  const endM = hh * 60 + mm + 30;
+  const en = a.date.replace(/-/g, '') + 'T' + pad(Math.floor(endM / 60) % 24) + pad(endM % 60) + '00';
+  return 'https://calendar.google.com/calendar/render?' + new URLSearchParams({ action: 'TEMPLATE', text: `🌿 ${a.type} · ${plotName(a.plotId)}`, dates: `${st}/${en}`, details: a.detail || '', ctz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok' });
+}
+
+// แจ้งเตือนผ่านเบราว์เซอร์ (ทำงานเมื่อเปิดเว็บไว้)
+const NOTIFIED_KEY = 'suan-notified';
+function checkBrowserNotify() {
+  if (!DB.settings.browserNotify || !('Notification' in window) || Notification.permission !== 'granted') return;
+  let sent = {};
+  try { sent = JSON.parse(localStorage.getItem(NOTIFIED_KEY) || '{}'); } catch { sent = {}; }
+  const t = todayStr(), nowHm = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+  dueReminders().filter(a => sent[a.id] !== t && (a.date < t || !a.time || a.time <= nowHm)).forEach(a => {
+    try { new Notification(`🔔 ${a.type} · ${plotName(a.plotId)}`, { body: (a.date < t ? `เลยกำหนด (${fmtDate(a.date)}) ` : 'วันนี้ ') + (a.detail || ''), tag: a.id }); } catch { /* บางเบราว์เซอร์มือถือไม่รองรับ */ }
+    sent[a.id] = t;
+  });
+  try { localStorage.setItem(NOTIFIED_KEY, JSON.stringify(sent)); } catch { /* ไม่เป็นไร */ }
+}
+window.enableBrowserNotify = async on => {
+  if (!on) { DB.settings.browserNotify = false; save(); render(); return; }
+  if (!('Notification' in window)) { toast('เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน — ใช้การส่งออกลงปฏิทินมือถือแทน'); render(); return; }
+  const perm = await Notification.requestPermission();
+  DB.settings.browserNotify = perm === 'granted';
+  save(); render();
+  if (perm === 'granted') { toast('เปิดการแจ้งเตือนแล้ว'); checkBrowserNotify(); }
+  else toast('ไม่ได้รับอนุญาตให้แจ้งเตือน');
+};
+
 window.editActivity = (id, plotId = '', date = '') => {
   const a = id ? DB.activities.find(x => x.id === id) : { plotId, date: date || todayStr(), type: ACTIVITY_TYPES[0], done: (date || todayStr()) <= todayStr() };
   openModal(id ? 'แก้ไขบันทึกงาน' : 'บันทึกงาน / วางแผนงาน', `
     <div class="field-row">
-      <label class="field"><span>วันที่</span><input name="date" type="date" required value="${esc(a.date)}"></label>
-      <label class="field"><span>แปลง</span><select name="plotId">${plotOptions(a.plotId)}</select></label>
+      <label class="field"><span>วันที่</span><input name="date" type="date" required value="${esc(a.date)}" onchange="remUpdateDates()"></label>
+      <label class="field"><span>เวลาเตือน (ถ้ามี)</span><input name="time" type="time" value="${esc(a.time || '')}"></label>
     </div>
-    <label class="field"><span>ประเภทงาน</span><select name="type">${options(ACTIVITY_TYPES, a.type)}</select></label>
-    <label class="field"><span>รายละเอียด</span><textarea name="detail" placeholder="เช่น ใส่ปุ๋ย 15-15-15 ต้นละ 1 กก.">${esc(a.detail)}</textarea></label>
+    <div class="field-row">
+      <label class="field"><span>แปลง</span><select name="plotId">${plotOptions(a.plotId)}</select></label>
+      <label class="field"><span>ประเภทงาน</span><select name="type" onchange="remChangeType(this.value)">${options(ACTIVITY_TYPES, a.type)}</select></label>
+    </div>
+    <label class="field"><span>รายละเอียด</span><textarea name="detail" placeholder="เช่น พ่นยาป้องกันเพลี้ยไฟ อัตรา 20 ซีซี/น้ำ 20 ลิตร">${esc(a.detail)}</textarea></label>
     <div class="field-row">
       <label class="field"><span>วัสดุที่ใช้ (ตัดจากคลัง)</span><select name="stockId"><option value="">— ไม่ระบุ —</option>${DB.stock.map(s => `<option value="${s.id}" ${s.id === a.stockId ? 'selected' : ''}>${esc(s.name)} (${fmtNum(s.qty, 2)} ${esc(s.unit)})</option>`).join('')}</select></label>
       <label class="field"><span>จำนวนที่ใช้</span><input name="stockQty" type="number" min="0" step="any" value="${esc(a.stockQty ?? '')}"></label>
     </div>
-    <label class="field inline-check"><input type="checkbox" name="done" ${a.done ? 'checked' : ''}> <span style="margin:0">ทำเสร็จแล้ว (ไม่ติ๊ก = แผนงาน/งานที่ต้องทำ)</span></label>`,
+    <label class="field inline-check"><input type="checkbox" name="done" ${a.done ? 'checked' : ''}> <span style="margin:0">ทำเสร็จแล้ว (ไม่ติ๊ก = แผนงาน/การเตือน)</span></label>
+    <label class="field"><span>🔁 ทำซ้ำ (เมื่อทำเสร็จ จะสร้างงานรอบถัดไปให้อัตโนมัติ)</span><select name="repeatDays">${REPEAT_OPTS.map(([v, l]) => `<option value="${v}" ${String(a.repeatDays || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <fieldset class="rem-box"><legend>🔔 ตั้งเตือนติดตามผล</legend>
+      <p class="small muted" style="margin:0 0 .4rem">ติ๊กเรื่องที่ต้องการให้เตือน ระบบจะเพิ่มลงปฏิทินตามวันที่คำนวณให้ แก้จำนวนวันหรือข้อความได้</p>
+      <div id="remRows">${remRowsHtml(a.type)}</div>
+      <button type="button" class="btn small" onclick="remAddRow()">+ เพิ่มการเตือนเอง</button>
+    </fieldset>`,
     fd => {
-      const rec = { date: fd.date, plotId: fd.plotId, type: fd.type, detail: fd.detail.trim(), stockId: fd.stockId, stockQty: fd.stockId ? +fd.stockQty || 0 : 0, done: !!fd.done };
+      const rec = { date: fd.date, time: fd.time || '', plotId: fd.plotId, type: fd.type, detail: fd.detail.trim(), stockId: fd.stockId, stockQty: fd.stockId ? +fd.stockQty || 0 : 0, done: !!fd.done, repeatDays: fd.repeatDays ? +fd.repeatDays : '' };
+      let target;
       if (id) {
-        if (a.done) applyStock(a, +1); // คืนของเดิมก่อน
+        const wasDone = a.done;
+        if (wasDone) applyStock(a, +1); // คืนของเดิมก่อน
         Object.assign(a, rec);
         if (a.done) applyStock(a, -1);
+        if (wasDone && !a.done) unspawnNext(a);
+        target = a;
       } else {
-        const n = { id: uid(), ...rec };
-        DB.activities.push(n);
-        if (n.done) applyStock(n, -1);
+        target = { id: uid(), ...rec };
+        DB.activities.push(target);
+        if (target.done) applyStock(target, -1);
       }
-      toast('บันทึกแล้ว');
+      spawnNext(target);
+      let nRem = 0;
+      modal.querySelectorAll('.rem-row').forEach(r => {
+        const days = +r.querySelector('.rem-days').value || 0;
+        if (!r.querySelector('.rem-on').checked || days < 1) return;
+        DB.activities.push({ id: uid(), date: addDays(rec.date, days), time: rec.time || '', plotId: rec.plotId, type: r.querySelector('.rem-type').value, detail: r.querySelector('.rem-detail').value.trim(), done: false, fromId: target.id });
+        nRem++;
+      });
+      toast(nRem ? `บันทึกแล้ว + ตั้งเตือน ${nRem} รายการ` : 'บันทึกแล้ว');
     });
+  remUpdateDates();
 };
 window.toggleDone = id => {
   const a = DB.activities.find(x => x.id === id);
   a.done = !a.done;
   applyStock(a, a.done ? -1 : +1);
+  if (a.done) spawnNext(a); else unspawnNext(a);
   save(); render();
+  if (a.done && a.nextId) toast(`ทำแล้ว · รอบถัดไป ${fmtDate(DB.activities.find(x => x.id === a.nextId)?.date)}`);
 };
 window.deleteActivity = id => confirmDelete('บันทึกงาน', () => {
   const a = DB.activities.find(x => x.id === id);
   if (a?.done) applyStock(a, +1);
   DB.activities = DB.activities.filter(x => x.id !== id);
 });
+
+function reminderLi(a) {
+  const t = todayStr();
+  const when = a.date < t ? `<span class="pill bad">เลยกำหนด ${Math.round((parseYmd(t) - parseYmd(a.date)) / 86400000)} วัน</span>` : a.date === t ? '<span class="pill warn">วันนี้</span>' : `<span class="pill">${fmtDate(a.date, false)}</span>`;
+  return `<li><div class="grow">
+      <div><span class="dot" style="background:${plotColor(a.plotId)}"></span><b>${esc(a.type)}</b> · ${esc(plotName(a.plotId))} ${when}${a.time ? ` <span class="small muted">⏰ ${esc(a.time)}</span>` : ''}${a.repeatDays ? ' <span class="small muted">🔁</span>' : ''}${rainWarn(a)}</div>
+      ${a.detail ? `<div class="small muted">${esc(a.detail)}</div>` : ''}
+      <div class="row" style="margin-top:.35rem;gap:.3rem">
+        <button class="btn small primary" onclick="toggleDone('${a.id}')">✓ ทำแล้ว</button>
+        <button class="btn small" onclick="snooze('${a.id}',1)">เลื่อนพรุ่งนี้</button>
+        <button class="btn small" onclick="snooze('${a.id}',3)">+3 วัน</button>
+        <button class="btn small" onclick="snooze('${a.id}',7)">+7 วัน</button>
+        <button class="icon-btn" title="เพิ่มลงปฏิทินมือถือ (.ics)" onclick="icsOne('${a.id}')">📲</button>
+        <a class="icon-btn" title="เพิ่มลง Google Calendar" href="${esc(gcalLink(a))}" target="_blank" rel="noopener" style="text-decoration:none">🗓️</a>
+        <button class="icon-btn" title="แก้ไข" onclick="editActivity('${a.id}')">✏️</button>
+      </div></div></li>`;
+}
 
 // ---------- หน้า: ลมฝน ----------
 PAGES.weather = () => {
@@ -744,6 +903,11 @@ PAGES.settings = () => `<div class="page-head"><h1>ตั้งค่า</h1></d
       <label class="field"><span>ธีม</span><select onchange="DB.settings.theme=this.value;save();render()">
         ${[['auto', 'ตามระบบ'], ['light', 'สว่าง'], ['dark', 'มืด']].map(([v, l]) => `<option value="${v}" ${DB.settings.theme === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <p class="small muted">ตำแหน่งสวนสำหรับพยากรณ์อากาศ ตั้งได้ที่หน้า <a href="#weather">ลมฝน</a></p></div>
+    <div class="card"><h2>🔔 การแจ้งเตือน</h2>
+      <label class="field inline-check"><input type="checkbox" ${DB.settings.browserNotify && 'Notification' in window && Notification.permission === 'granted' ? 'checked' : ''} onchange="enableBrowserNotify(this.checked)"> <span style="margin:0">แจ้งเตือนผ่านเบราว์เซอร์เมื่อถึงกำหนด</span></label>
+      <p class="small muted" style="margin:0 0 .6rem">ใช้ได้เมื่อเปิดเว็บนี้ค้างไว้ (แม้อยู่แท็บอื่น) ถ้าต้องการให้มือถือเตือนแม้ปิดเว็บ ให้ใช้ “ลงปฏิทินมือถือ”</p>
+      <button class="btn" onclick="icsAll()">📲 ส่งออกการเตือนทั้งหมดลงปฏิทินมือถือ (.ics)</button>
+      <p class="small muted" style="margin:.4rem 0 0">เปิดไฟล์ที่ได้ในมือถือ → เพิ่มลงปฏิทิน (iPhone: ปฏิทิน, Android: Google Calendar) ถ้าเพิ่มการเตือนใหม่ ให้ส่งออกอีกครั้ง ระบบจะไม่สร้างรายการซ้ำในแอปปฏิทินส่วนใหญ่</p></div>
     <div class="card"><h2>สำรอง / ย้ายข้อมูล</h2>
       <p class="small muted" style="margin-top:0">ข้อมูลทั้งหมดเก็บไว้ในเบราว์เซอร์ของเครื่องนี้เท่านั้น ควรกด “ส่งออก” เก็บไว้เป็นระยะ และใช้ “นำเข้า” เพื่อย้ายไปเครื่องอื่น</p>
       <div class="row"><button class="btn primary" onclick="exportAll()">⬇ ส่งออกข้อมูล (.json)</button>
@@ -810,3 +974,6 @@ window.loadSample = () => {
 // ---------- เริ่มต้น ----------
 render();
 fetchWeather();
+checkBrowserNotify();
+setInterval(() => { checkBrowserNotify(); if (currentTab() === 'dashboard' && !modal.open) render(); }, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkBrowserNotify(); if (!modal.open) render(); } });
