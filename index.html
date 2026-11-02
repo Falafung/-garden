@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>สมุดสวน</title>
+<meta name="description" content="จัดการแปลงปลูก บันทึกกิจกรรม พยากรณ์ฝน คลังความรู้ และบัญชีรายรับรายจ่ายของสวน">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo" aria-hidden="true">🌿</span><span id="farmName">สมุดสวน</span></div>
+  <nav class="tabs" id="tabs">
+    <a href="#dashboard" data-tab="dashboard">ภาพรวม</a>
+    <a href="#plots" data-tab="plots">แปลงปลูก</a>
+    <a href="#calendar" data-tab="calendar">ปฏิทินงาน</a>
+    <a href="#weather" data-tab="weather">ลมฝน</a>
+    <a href="#harvest" data-tab="harvest">ผลผลิต</a>
+    <a href="#finance" data-tab="finance">บัญชี</a>
+    <a href="#stock" data-tab="stock">คลังวัสดุ</a>
+    <a href="#knowledge" data-tab="knowledge">คลังความรู้</a>
+    <a href="#settings" data-tab="settings">ตั้งค่า</a>
+  </nav>
+</header>
+
+<main id="app"></main>
+
+<dialog id="modal">
+  <form method="dialog" id="modalForm">
+    <h2 id="modalTitle"></h2>
+    <div id="modalBody"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn ghost" id="modalCancel">ยกเลิก</button>
+      <button type="submit" class="btn primary" id="modalOk">บันทึก</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
