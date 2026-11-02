@@ -34,15 +34,17 @@ function emptyData() {
     knowledge: DEFAULT_KB.map(k => ({ id: uid(), ...k })),
   };
 }
+function normalizeData(d) {
+  const base = emptyData();
+  const out = { ...base, ...d, settings: { ...base.settings, ...(d?.settings || {}) } };
+  for (const k of ['plots', 'activities', 'finance', 'harvests', 'stock', 'knowledge', 'journal']) if (!Array.isArray(out[k])) out[k] = base[k];
+  return out;
+}
 function loadData() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return emptyData();
-    const d = JSON.parse(raw);
-    const base = emptyData();
-    const out = { ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) } };
-    for (const k of ['plots', 'activities', 'finance', 'harvests', 'stock', 'knowledge', 'journal']) if (!Array.isArray(out[k])) out[k] = base[k];
-    return out;
+    return normalizeData(JSON.parse(raw));
   } catch (e) {
     console.warn('อ่านข้อมูลไม่สำเร็จ', e);
     return emptyData();
@@ -51,8 +53,19 @@ function loadData() {
 let DB = loadData();
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
-  catch (e) { toast('บันทึกไม่สำเร็จ: พื้นที่เก็บข้อมูลของเบราว์เซอร์อาจเต็มหรือถูกปิด'); }
+  catch (e) { if (!window.SYNC?.signedIn) toast('บันทึกไม่สำเร็จ: พื้นที่เก็บข้อมูลของเบราว์เซอร์อาจเต็มหรือถูกปิด'); }
+  window.SYNC?.push?.(); // ส่งการเปลี่ยนแปลงขึ้นคลาวด์ (ถ้าเปิดซิงก์ไว้)
 }
+// ใช้โดยระบบซิงก์: แทนที่ข้อมูลทั้งหมด โดยคงค่าที่เป็นของเครื่องนี้ไว้ (ธีม การแจ้งเตือน)
+window.getDB = () => DB;
+window.replaceDB = (d, { push = false } = {}) => {
+  const keep = { theme: DB.settings.theme, browserNotify: DB.settings.browserNotify };
+  DB = normalizeData(d);
+  Object.assign(DB.settings, keep);
+  if (push) save();
+  else { try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch { /* ข้อมูลยังอยู่บนคลาวด์ */ } }
+  if (!document.getElementById('modal').open) render();
+};
 
 // ---------- utils ----------
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -772,7 +785,7 @@ PAGES.finance = () => {
   const monthsWithData = [...new Set(DB.finance.map(f => monthKey(f.date)))].sort().reverse();
   return `<div class="page-head"><h1>บัญชีรายรับ–รายจ่าย</h1><div class="row">
       <button class="btn primary" onclick="editFinance(null,'',null,'in')">+ รายรับ</button><button class="btn" onclick="editFinance(null,'',null,'out')">+ รายจ่าย</button>
-      <button class="btn ghost" onclick="exportFinanceCsv()">⬇ CSV</button></div></div>
+      <button class="btn ghost" onclick="exportFinanceCsv()">⬇ CSV</button>${window.SYNC?.signedIn ? '<button class="btn ghost" onclick="SYNC.driveSheet()">📊 เปิดใน Google Sheets</button>' : ''}</div></div>
     <div class="row" style="margin-bottom:12px">
       <select style="width:auto" onchange="FIN.month=this.value;render()"><option value="">ทุกเดือน</option>${monthsWithData.map(mk => `<option value="${mk}" ${mk === FIN.month ? 'selected' : ''}>${monthLabel(mk, true)}</option>`).join('')}</select>
       <select style="width:auto" onchange="FIN.type=this.value;render()"><option value="">รับ+จ่าย</option><option value="in" ${FIN.type === 'in' ? 'selected' : ''}>รายรับ</option><option value="out" ${FIN.type === 'out' ? 'selected' : ''}>รายจ่าย</option></select>
@@ -818,12 +831,12 @@ window.editFinance = (id, plotId = '', _unused = null, type = 'out') => {
     });
 };
 window.deleteFinance = id => confirmDelete('รายการ', () => { DB.finance = DB.finance.filter(x => x.id !== id); });
-window.exportFinanceCsv = () => {
+function financeCsv() {
   const rows = [['วันที่', 'ประเภท', 'หมวด', 'แปลง', 'รายละเอียด', 'จำนวนเงิน']].concat(
     [...DB.finance].sort((a, b) => a.date.localeCompare(b.date)).map(f => [f.date, f.type === 'in' ? 'รายรับ' : 'รายจ่าย', f.category, plotName(f.plotId), f.note, f.amount]));
-  const csv = '﻿' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-  download(`บัญชีสวน-${todayStr()}.csv`, csv, 'text/csv');
-};
+  return '﻿' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+}
+window.exportFinanceCsv = () => download(`บัญชีสวน-${todayStr()}.csv`, financeCsv(), 'text/csv');
 
 // ---------- หน้า: คลังวัสดุ ----------
 const STOCK_CATS = ['ปุ๋ยเคมี', 'ปุ๋ยอินทรีย์', 'ยา/สารเคมี', 'ฮอร์โมน/อาหารเสริม', 'เมล็ด/กิ่งพันธุ์', 'อุปกรณ์/เครื่องมือ', 'น้ำมัน/เชื้อเพลิง', 'อื่นๆ'];
@@ -1004,6 +1017,7 @@ window.deleteKb = id => confirmDelete('หัวข้อความรู้',
 // ---------- หน้า: ตั้งค่า ----------
 PAGES.settings = () => `<div class="page-head"><h1>ตั้งค่า</h1></div>
   <div class="grid cols-2">
+    ${window.SYNC?.cardHtml ? SYNC.cardHtml() : `<div class="card"><h2>☁️ ซิงก์ข้อมูลทุกเครื่อง</h2><p class="muted">${location.protocol === 'file:' ? 'ระบบซิงก์ใช้ได้เมื่อเปิดผ่านเว็บ (https://falafung.github.io/-garden/) ไม่ใช่เปิดไฟล์จากเครื่องโดยตรง' : 'กำลังโหลดระบบซิงก์…'}</p></div>`}
     <div class="card"><h2>ข้อมูลสวน</h2>
       <label class="field"><span>ชื่อสวน</span><input value="${esc(DB.settings.farmName)}" onchange="DB.settings.farmName=this.value.trim();save();render()"></label>
       <label class="field"><span>ธีม</span><select onchange="DB.settings.theme=this.value;save();render()">
@@ -1015,7 +1029,7 @@ PAGES.settings = () => `<div class="page-head"><h1>ตั้งค่า</h1></d
       <button class="btn" onclick="icsAll()">📲 ส่งออกการเตือนทั้งหมดลงปฏิทินมือถือ (.ics)</button>
       <p class="small muted" style="margin:.4rem 0 0">เปิดไฟล์ที่ได้ในมือถือ → เพิ่มลงปฏิทิน (iPhone: ปฏิทิน, Android: Google Calendar) ถ้าเพิ่มการเตือนใหม่ ให้ส่งออกอีกครั้ง ระบบจะไม่สร้างรายการซ้ำในแอปปฏิทินส่วนใหญ่</p></div>
     <div class="card"><h2>สำรอง / ย้ายข้อมูล</h2>
-      <p class="small muted" style="margin-top:0">ข้อมูลทั้งหมดเก็บไว้ในเบราว์เซอร์ของเครื่องนี้เท่านั้น ควรกด “ส่งออก” เก็บไว้เป็นระยะ และใช้ “นำเข้า” เพื่อย้ายไปเครื่องอื่น</p>
+      <p class="small muted" style="margin-top:0">${window.SYNC?.signedIn ? 'ข้อมูลซิงก์ขึ้นคลาวด์แล้ว ไฟล์สำรองนี้ใช้เก็บไว้เผื่อฉุกเฉิน (การนำเข้าจะเขียนทับข้อมูลในทุกเครื่องที่ซิงก์อยู่)' : 'ถ้ายังไม่เปิดซิงก์ ข้อมูลจะเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น ควรกด “ส่งออก” เก็บไว้เป็นระยะ'}</p>
       <div class="row"><button class="btn primary" onclick="exportAll()">⬇ ส่งออกข้อมูล (.json)</button>
         <label class="btn">⬆ นำเข้าข้อมูล<input type="file" accept=".json,application/json" hidden onchange="importAll(this.files[0])"></label></div>
       <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0">
@@ -1034,13 +1048,11 @@ window.importAll = async file => {
     const d = JSON.parse(await file.text());
     if (!d || !Array.isArray(d.plots) || !Array.isArray(d.activities)) throw new Error('รูปแบบไฟล์ไม่ถูกต้อง');
     if (!confirm('นำเข้าจะเขียนทับข้อมูลปัจจุบันทั้งหมด ดำเนินการต่อ?')) return;
-    const base = emptyData();
-    DB = { ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) } };
-    save(); render(); toast('นำเข้าข้อมูลแล้ว');
+    replaceDB(d, { push: true }); render(); toast('นำเข้าข้อมูลแล้ว');
   } catch (e) { alert('นำเข้าไม่สำเร็จ: ' + e.message); }
 };
 window.resetAll = () => {
-  if (!confirm('ล้างข้อมูลทั้งหมด? แนะนำให้ส่งออกสำรองก่อน')) return;
+  if (!confirm(window.SYNC?.signedIn ? 'ล้างข้อมูลทั้งหมด? ข้อมูลจะถูกลบจากทุกเครื่องที่ซิงก์อยู่ด้วย แนะนำให้สำรองก่อน' : 'ล้างข้อมูลทั้งหมด? แนะนำให้ส่งออกสำรองก่อน')) return;
   DB = emptyData(); save(); render(); toast('ล้างข้อมูลแล้ว');
 };
 window.loadSample = () => {

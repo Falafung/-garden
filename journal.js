@@ -382,6 +382,7 @@ window.saveJournal = form => {
     if (target.photo) { target.photo = ''; save(); msg = 'พื้นที่เก็บข้อมูลเต็ม — บันทึกแล้วแต่ไม่ได้เก็บรูป'; }
     else msg = 'บันทึกไม่สำเร็จ: พื้นที่เก็บข้อมูลเต็ม';
   }
+  window.SYNC?.push?.();
   JN.editId = null; JN.photo = null;
   render(); toast(msg);
 };
