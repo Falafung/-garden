@@ -40,7 +40,9 @@ function loadData() {
     if (!raw) return emptyData();
     const d = JSON.parse(raw);
     const base = emptyData();
-    return { ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) } };
+    const out = { ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) } };
+    for (const k of ['plots', 'activities', 'finance', 'harvests', 'stock', 'knowledge', 'journal']) if (!Array.isArray(out[k])) out[k] = base[k];
+    return out;
   } catch (e) {
     console.warn('อ่านข้อมูลไม่สำเร็จ', e);
     return emptyData();
@@ -233,7 +235,13 @@ function render() {
   document.getElementById('farmName').textContent = DB.settings.farmName || 'สมุดสวน';
   const tab = currentTab();
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === tab));
-  document.getElementById('app').innerHTML = PAGES[tab]();
+  let html;
+  try { html = PAGES[tab](); }
+  catch (e) {
+    console.error(e);
+    html = `<div class="card"><h2>⚠️ หน้านี้แสดงผลไม่สำเร็จ</h2><p>ลองรีเฟรชหน้าเว็บ (Ctrl + Shift + R) ถ้ายังไม่หาย ส่งข้อความนี้มาให้ผู้ดูแล:</p><pre class="small" style="white-space:pre-wrap">${esc(e.message)}</pre></div>`;
+  }
+  document.getElementById('app').innerHTML = html;
 }
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 function applyTheme() {
