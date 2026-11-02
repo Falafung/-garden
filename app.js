@@ -221,7 +221,9 @@ function wxAdvice() {
 function applyStock(act, sign) {
   if (!act.stockId || !act.stockQty) return;
   const item = DB.stock.find(s => s.id === act.stockId);
-  if (item) item.qty = Math.round(((+item.qty || 0) + sign * (+act.stockQty)) * 1000) / 1000;
+  if (!item) return;
+  item.qty = Math.round(((+item.qty || 0) + sign * (+act.stockQty)) * 1000) / 1000;
+  if (item.qty < 0) setTimeout(() => toast(`⚠️ ${item.name} ใน${stockLoc(item)} ติดลบ (${fmtNum(item.qty, 2)} ${item.unit}) — ตรวจสอบยอดหรือรับเข้าเพิ่ม`), 50);
 }
 
 // ---------- router ----------
@@ -298,7 +300,7 @@ PAGES.dashboard = () => {
     <div class="card"><h2>✅ งานที่ทำล่าสุด</h2>
       ${recent.length ? `<ul class="list">${recent.map(activityLi).join('')}</ul>` : '<div class="empty">ยังไม่มีบันทึก</div>'}</div>
     <div class="card"><h2>📦 วัสดุใกล้หมด<a class="small" href="#stock">คลัง →</a></h2>
-      ${lowStock.length ? `<ul class="list">${lowStock.map(s => `<li><span class="grow">${esc(s.name)}</span><span class="pill warn">เหลือ ${fmtNum(s.qty, 2)} ${esc(s.unit)}</span></li>`).join('')}</ul>` : '<div class="empty">ไม่มีรายการใกล้หมด</div>'}</div>
+      ${lowStock.length ? `<ul class="list">${lowStock.map(s => `<li><span class="grow">${esc(s.name)} <span class="small muted">· ${esc(stockLoc(s))}</span></span><span class="pill warn">เหลือ ${fmtNum(s.qty, 2)} ${esc(s.unit)}</span></li>`).join('')}</ul>` : '<div class="empty">ไม่มีรายการใกล้หมด</div>'}</div>
   </div>`;
 };
 
@@ -555,7 +557,7 @@ window.editActivity = (id, plotId = '', date = '') => {
     </div>
     <label class="field"><span>รายละเอียด</span><textarea name="detail" placeholder="เช่น พ่นยาป้องกันเพลี้ยไฟ อัตรา 20 ซีซี/น้ำ 20 ลิตร">${esc(a.detail)}</textarea></label>
     <div class="field-row">
-      <label class="field"><span>วัสดุที่ใช้ (ตัดจากคลัง)</span><select name="stockId"><option value="">— ไม่ระบุ —</option>${DB.stock.map(s => `<option value="${s.id}" ${s.id === a.stockId ? 'selected' : ''}>${esc(s.name)} (${fmtNum(s.qty, 2)} ${esc(s.unit)})</option>`).join('')}</select></label>
+      <label class="field"><span>วัสดุที่ใช้ (ตัดจากคลัง)</span><select name="stockId"><option value="">— ไม่ระบุ —</option>${stockSelectOptions(a.stockId, a.plotId)}</select></label>
       <label class="field"><span>จำนวนที่ใช้</span><input name="stockQty" type="number" min="0" step="any" value="${esc(a.stockQty ?? '')}"></label>
     </div>
     <label class="field inline-check"><input type="checkbox" name="done" ${a.done ? 'checked' : ''}> <span style="margin:0">ทำเสร็จแล้ว (ไม่ติ๊ก = แผนงาน/การเตือน)</span></label>
@@ -824,48 +826,152 @@ window.exportFinanceCsv = () => {
 };
 
 // ---------- หน้า: คลังวัสดุ ----------
+const STOCK_CATS = ['ปุ๋ยเคมี', 'ปุ๋ยอินทรีย์', 'ยา/สารเคมี', 'ฮอร์โมน/อาหารเสริม', 'เมล็ด/กิ่งพันธุ์', 'อุปกรณ์/เครื่องมือ', 'น้ำมัน/เชื้อเพลิง', 'อื่นๆ'];
+const STOCK_CAT_ICON = { 'ปุ๋ยเคมี': '🧪', 'ปุ๋ยอินทรีย์': '🌱', 'ยา/สารเคมี': '☠️', 'ฮอร์โมน/อาหารเสริม': '💧', 'เมล็ด/กิ่งพันธุ์': '🌰', 'อุปกรณ์/เครื่องมือ': '🛠️', 'น้ำมัน/เชื้อเพลิง': '⛽', 'อื่นๆ': '📦' };
+let STK = { loc: 'all', cat: '', q: '', merge: false };
+function guessStockCat(name = '') {
+  if (/คอก|หมัก|อินทรีย์|ชีวภาพ|มูล|แกลบ|โดโลไมท์|ปูน/.test(name)) return 'ปุ๋ยอินทรีย์';
+  if (/ปุ๋ย|\d+-\d+-\d+/.test(name)) return 'ปุ๋ยเคมี';
+  if (/ฮอร์โมน|อาหารเสริม|สาหร่าย|อะมิโน|จุลธาตุ/.test(name)) return 'ฮอร์โมน/อาหารเสริม';
+  if (/ยา|สาร|ไตรโคเดอร์มา|บิวเวอร์เรีย|กำจัด|ฆ่า/.test(name)) return 'ยา/สารเคมี';
+  if (/เมล็ด|กิ่ง|ต้นพันธุ์|กล้า/.test(name)) return 'เมล็ด/กิ่งพันธุ์';
+  if (/น้ำมัน|ดีเซล|เบนซิน/.test(name)) return 'น้ำมัน/เชื้อเพลิง';
+  if (/สาย|ท่อ|หัว|กรรไกร|เลื่อย|ถัง|เครื่อง|ปั๊ม|ถุง|ตาข่าย/.test(name)) return 'อุปกรณ์/เครื่องมือ';
+  return 'อื่นๆ';
+}
+function stockCat(s) { return s.cat || guessStockCat(s.name); }
+function stockLoc(s) { return s.plotId ? plotName(s.plotId) : 'คลังกลาง (ใช้ร่วม)'; }
+function isLow(s) { return s.minQty !== '' && s.minQty != null && +s.qty <= +s.minQty; }
+function allStockCats() { return [...new Set([...STOCK_CATS, ...DB.stock.map(stockCat)])]; }
+function financeCatForStock(cat) {
+  if (/ปุ๋ย/.test(cat)) return 'ปุ๋ย';
+  if (/ยา|ฮอร์โมน/.test(cat)) return 'ยา/สารเคมี';
+  if (/เมล็ด|กิ่ง/.test(cat)) return 'เมล็ด/กิ่งพันธุ์';
+  if (/น้ำมัน/.test(cat)) return 'น้ำมัน';
+  if (/อุปกรณ์/.test(cat)) return 'อุปกรณ์/เครื่องมือ';
+  return 'อื่นๆ';
+}
+// ตัวเลือกวัสดุในหน้าบันทึกงาน: จัดกลุ่มตามคลัง แสดงคลังของแปลงนั้น + คลังกลางก่อน
+function stockSelectOptions(selectedId, plotId) {
+  const groups = {};
+  DB.stock.forEach(s => (groups[s.plotId || ''] ||= []).push(s));
+  const order = [plotId || '', ...(plotId ? [''] : []), ...Object.keys(groups).filter(k => k !== (plotId || '') && k !== '')];
+  return [...new Set(order)].filter(k => groups[k]).map(k => `<optgroup label="${esc(k ? 'คลัง ' + plotName(k) : 'คลังกลาง (ใช้ร่วม)')}">${groups[k].sort((a, b) => a.name.localeCompare(b.name, 'th')).map(s => `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.name)} (${fmtNum(s.qty, 2)} ${esc(s.unit)})</option>`).join('')}</optgroup>`).join('');
+}
+
 PAGES.stock = () => {
-  const list = [...DB.stock].sort((a, b) => a.name.localeCompare(b.name, 'th'));
-  return `<div class="page-head"><h1>คลังวัสดุ (ปุ๋ย ยา อุปกรณ์)</h1><button class="btn primary" onclick="editStock()">+ เพิ่มรายการ</button></div>
-    <p class="muted small" style="margin-top:-.5rem">เมื่อบันทึกงานและเลือก “วัสดุที่ใช้” ระบบจะตัดยอดคงเหลือให้อัตโนมัติ</p>
-    <div class="card">${list.length ? `<div class="table-wrap"><table><tr><th>รายการ</th><th class="num">คงเหลือ</th><th class="num">แจ้งเตือนเมื่อต่ำกว่า</th><th></th><th></th></tr>
-      ${list.map(s => { const low = s.minQty !== '' && s.minQty != null && +s.qty <= +s.minQty; return `<tr><td><b>${esc(s.name)}</b>${s.note ? `<div class="small muted">${esc(s.note)}</div>` : ''}</td>
-        <td class="num">${fmtNum(s.qty, 2)} ${esc(s.unit)} ${low ? '<span class="pill warn">ใกล้หมด</span>' : ''}</td><td class="num">${s.minQty !== '' && s.minQty != null ? fmtNum(s.minQty, 2) + ' ' + esc(s.unit) : '-'}</td>
-        <td class="num"><button class="btn small" onclick="adjustStock('${s.id}',1)">+ รับเข้า</button> <button class="btn small" onclick="adjustStock('${s.id}',-1)">− เบิกออก</button></td>
-        <td class="num"><button class="icon-btn" onclick="editStock('${s.id}')">✏️</button><button class="icon-btn" onclick="deleteStock('${s.id}')">🗑️</button></td></tr>`; }).join('')}</table></div>` : '<div class="empty">ยังไม่มีรายการในคลัง</div>'}</div>`;
+  const q = STK.q.trim().toLowerCase();
+  let list = DB.stock.filter(s => (STK.loc === 'all' || (STK.loc === '_main' ? !s.plotId : s.plotId === STK.loc)) && (!STK.cat || stockCat(s) === STK.cat) && (!q || (s.name + ' ' + (s.note || '')).toLowerCase().includes(q)));
+  // รวมยอดชื่อ+หน่วยเดียวกันจากทุกคลัง
+  if (STK.merge) {
+    const m = {};
+    list.forEach(s => {
+      const k = s.name.trim().toLowerCase() + '|' + s.unit + '|' + stockCat(s);
+      if (!m[k]) m[k] = { ...s, qty: 0, minQty: '', merged: [], value: 0 };
+      m[k].qty += +s.qty || 0; m[k].merged.push(s);
+      if (s.minQty !== '' && s.minQty != null) m[k].minQty = (+m[k].minQty || 0) + +s.minQty;
+    });
+    list = Object.values(m);
+  }
+  const value = arr => arr.reduce((a, s) => a + (STK.merge ? s.merged.reduce((b, x) => b + (+x.qty || 0) * (+x.price || 0), 0) : (+s.qty || 0) * (+s.price || 0)), 0);
+  const byCat = {};
+  list.forEach(s => (byCat[stockCat(s)] ||= []).push(s));
+  const cats = allStockCats().filter(c => byCat[c]);
+  const lowN = list.filter(isLow).length;
+  const locs = [['all', '📦 ทุกคลัง (รวม)'], ['_main', '🏠 คลังกลาง'], ...DB.plots.map(p => [p.id, '🌳 ' + p.name])];
+  const locCount = k => DB.stock.filter(s => k === 'all' || (k === '_main' ? !s.plotId : s.plotId === k)).length;
+
+  const row = s => {
+    const low = isLow(s);
+    const where = STK.merge
+      ? s.merged.map(x => `<span class="pill">${esc(x.plotId ? plotName(x.plotId) : 'คลังกลาง')}: ${fmtNum(x.qty, 2)}</span>`).join(' ')
+      : (STK.loc === 'all' ? `<span class="pill" style="border-left:3px solid ${s.plotId ? plotColor(s.plotId) : 'var(--muted)'}">${esc(stockLoc(s))}</span>` : '');
+    const val = STK.merge ? s.merged.reduce((b, x) => b + (+x.qty || 0) * (+x.price || 0), 0) : (+s.qty || 0) * (+s.price || 0);
+    return `<tr><td><b>${esc(s.name)}</b> ${where}${s.note && !STK.merge ? `<div class="small muted">${esc(s.note)}</div>` : ''}</td>
+      <td class="num">${fmtNum(s.qty, 2)} ${esc(s.unit)} ${low ? '<span class="pill warn">ใกล้หมด</span>' : ''}${s.minQty !== '' && s.minQty != null ? `<div class="small muted">เตือนเมื่อ ≤ ${fmtNum(s.minQty, 2)}</div>` : ''}</td>
+      <td class="num">${val ? fmtMoney(val) : '<span class="muted">-</span>'}</td>
+      <td class="num">${STK.merge ? '<span class="small muted">ปิด “รวมยอด” เพื่อแก้ไข</span>' : `<div class="row" style="justify-content:flex-end;gap:.3rem">
+        <button class="btn small" onclick="adjustStock('${s.id}',1)">+ รับเข้า</button><button class="btn small" onclick="adjustStock('${s.id}',-1)">− เบิกออก</button>
+        <button class="btn small" onclick="transferStock('${s.id}')" title="ย้ายไปคลังอื่น">⇄ ย้าย</button>
+        <button class="icon-btn" onclick="editStock('${s.id}')" title="แก้ไข">✏️</button><button class="icon-btn" onclick="deleteStock('${s.id}')" title="ลบ">🗑️</button></div>`}</td></tr>`;
+  };
+
+  return `<div class="page-head"><h1>คลังวัสดุ</h1><button class="btn primary" onclick="editStock()">+ เพิ่มรายการ</button></div>
+    <div class="loc-tabs">${locs.map(([k, l]) => `<button class="loc-tab ${STK.loc === k ? 'active' : ''}" onclick="STK.loc='${k}';render()">${esc(l)} <span class="muted small">${locCount(k)}</span></button>`).join('')}</div>
+    <div class="row" style="margin:10px 0 12px">
+      <input id="stkSearch" placeholder="ค้นหาชื่อวัสดุ" value="${esc(STK.q)}" oninput="STK.q=this.value;render();const e=document.getElementById('stkSearch');e.focus();e.setSelectionRange(e.value.length,e.value.length)" style="flex:1;min-width:160px">
+      <select style="width:auto" onchange="STK.cat=this.value;render()"><option value="">ทุกหมวด</option>${allStockCats().map(c => `<option ${c === STK.cat ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      ${STK.loc === 'all' ? `<label class="inline-check small" style="white-space:nowrap"><input type="checkbox" ${STK.merge ? 'checked' : ''} onchange="STK.merge=this.checked;render()"> รวมยอดชื่อเดียวกันทุกคลัง</label>` : ''}
+    </div>
+    <div class="grid cols-4" style="margin-bottom:12px">
+      <div class="card stat"><div class="label">รายการ</div><div class="value">${list.length}</div><div class="sub">${cats.length} หมวด</div></div>
+      <div class="card stat"><div class="label">ใกล้หมด</div><div class="value" style="color:${lowN ? 'var(--warn)' : 'inherit'}">${lowN}</div><div class="sub">รายการ</div></div>
+      <div class="card stat"><div class="label">มูลค่าคงคลังโดยประมาณ</div><div class="value">${fmtMoney(value(list))}</div><div class="sub">จากราคาต่อหน่วยที่ใส่ไว้</div></div>
+    </div>
+    ${cats.length ? cats.map(c => `<div class="card" style="margin-bottom:12px"><h2>${STOCK_CAT_ICON[c] || '📦'} ${esc(c)} <span class="small muted" style="font-weight:400">${byCat[c].length} รายการ · ${fmtMoney(value(byCat[c]))}</span></h2>
+      <div class="table-wrap"><table><tr><th>รายการ</th><th class="num">คงเหลือ</th><th class="num">มูลค่า</th><th></th></tr>
+      ${byCat[c].sort((a, b) => a.name.localeCompare(b.name, 'th')).map(row).join('')}</table></div></div>`).join('')
+      : `<div class="card empty">${DB.stock.length ? 'ไม่พบรายการตามตัวกรอง' : 'ยังไม่มีรายการในคลัง — กด “เพิ่มรายการ”'}</div>`}
+    <p class="muted small">เมื่อบันทึกงานและเลือก “วัสดุที่ใช้” ระบบจะตัดยอดให้อัตโนมัติ · คลังกลาง = ของที่ใช้ร่วมกันทุกแปลง · ใช้ “⇄ ย้าย” เพื่อแบ่งของจากคลังกลางไปคลังแปลง</p>`;
 };
 window.editStock = id => {
-  const s = id ? DB.stock.find(x => x.id === id) : { unit: 'กก.', qty: 0 };
+  const s = id ? DB.stock.find(x => x.id === id) : { unit: 'กก.', qty: 0, cat: STK.cat || '', plotId: STK.loc !== 'all' && STK.loc !== '_main' ? STK.loc : '' };
   openModal(id ? 'แก้ไขรายการ' : 'เพิ่มรายการในคลัง', `
-    <label class="field"><span>ชื่อ *</span><input name="name" required value="${esc(s.name)}" placeholder="เช่น ปุ๋ย 15-15-15"></label>
+    <label class="field"><span>ชื่อ *</span><input name="name" required value="${esc(s.name)}" placeholder="เช่น ปุ๋ย 15-15-15" oninput="if(!this.form.cat.dataset.touched)this.form.cat.value=guessStockCat(this.value)"></label>
+    <div class="field-row">
+      <label class="field"><span>หมวดหมู่ (เลือกหรือพิมพ์หมวดใหม่)</span><input name="cat" list="stockCats" value="${esc(s.cat || (s.name ? guessStockCat(s.name) : ''))}" oninput="this.dataset.touched=1" placeholder="เช่น ปุ๋ยเคมี"><datalist id="stockCats">${allStockCats().map(c => `<option value="${esc(c)}">`).join('')}</datalist></label>
+      <label class="field"><span>เก็บที่คลัง</span><select name="plotId">${plotOptions(s.plotId, true, 'คลังกลาง (ใช้ร่วมทุกแปลง)')}</select></label>
+    </div>
     <div class="field-row">
       <label class="field"><span>คงเหลือ</span><input name="qty" type="number" step="any" value="${esc(s.qty)}"></label>
       <label class="field"><span>หน่วย</span><input name="unit" value="${esc(s.unit)}" list="stockUnits"><datalist id="stockUnits">${STOCK_UNITS.map(u => `<option value="${u}">`).join('')}</datalist></label>
       <label class="field"><span>เตือนเมื่อเหลือ ≤</span><input name="minQty" type="number" step="any" value="${esc(s.minQty ?? '')}"></label>
+      <label class="field"><span>ราคา/หน่วย (บาท)</span><input name="price" type="number" min="0" step="any" value="${esc(s.price ?? '')}"></label>
     </div>
-    <label class="field"><span>หมายเหตุ</span><input name="note" value="${esc(s.note)}" placeholder="ร้านที่ซื้อ ราคา ฯลฯ"></label>`,
+    <label class="field"><span>หมายเหตุ</span><input name="note" value="${esc(s.note)}" placeholder="ร้านที่ซื้อ วันหมดอายุ ฯลฯ"></label>`,
     fd => {
       if (!fd.name.trim()) return false;
-      const rec = { name: fd.name.trim(), qty: +fd.qty || 0, unit: fd.unit.trim(), minQty: fd.minQty === '' ? '' : +fd.minQty, note: fd.note.trim() };
+      const rec = { name: fd.name.trim(), cat: fd.cat.trim() || guessStockCat(fd.name), plotId: fd.plotId, qty: +fd.qty || 0, unit: fd.unit.trim(), minQty: fd.minQty === '' ? '' : +fd.minQty, price: fd.price === '' ? '' : +fd.price, note: fd.note.trim() };
       if (id) Object.assign(s, rec); else DB.stock.push({ id: uid(), ...rec });
     });
 };
 window.adjustStock = (id, sign) => {
   const s = DB.stock.find(x => x.id === id);
-  openModal(`${sign > 0 ? 'รับเข้า' : 'เบิกออก'}: ${s.name}`, `
+  openModal(`${sign > 0 ? 'รับเข้า' : 'เบิกออก'}: ${s.name} (${stockLoc(s)})`, `
     <label class="field"><span>จำนวน (${esc(s.unit)})</span><input name="qty" type="number" min="0" step="any" required></label>
-    ${sign > 0 ? `<label class="field"><span>ราคารวม (บาท) — ถ้าใส่จะลงบัญชีรายจ่ายให้</span><input name="cost" type="number" min="0" step="any"></label>` : ''}`,
+    ${sign > 0 ? `<label class="field"><span>ราคารวม (บาท) — ถ้าใส่จะลงบัญชีรายจ่ายให้ และอัปเดตราคา/หน่วย</span><input name="cost" type="number" min="0" step="any"></label>` : ''}`,
     fd => {
       const q = +fd.qty || 0;
       s.qty = Math.round(((+s.qty || 0) + sign * q) * 1000) / 1000;
       if (sign > 0 && +fd.cost > 0) {
-        const cat = /ยา|สาร|ฮอร์โมน/.test(s.name) ? 'ยา/สารเคมี' : /ปุ๋ย/.test(s.name) ? 'ปุ๋ย' : 'อุปกรณ์/เครื่องมือ';
-        DB.finance.push({ id: uid(), date: todayStr(), type: 'out', category: cat, plotId: '', amount: +fd.cost, note: `ซื้อ ${s.name} ${fmtNum(q, 2)} ${s.unit}` });
+        if (q > 0) s.price = Math.round(+fd.cost / q * 100) / 100;
+        DB.finance.push({ id: uid(), date: todayStr(), type: 'out', category: financeCatForStock(stockCat(s)), plotId: s.plotId || '', amount: +fd.cost, note: `ซื้อ ${s.name} ${fmtNum(q, 2)} ${s.unit}` });
       }
       toast('ปรับยอดแล้ว');
     });
 };
+window.transferStock = id => {
+  const s = DB.stock.find(x => x.id === id);
+  const targets = [['', 'คลังกลาง (ใช้ร่วม)'], ...DB.plots.map(p => [p.id, p.name])].filter(([k]) => k !== (s.plotId || ''));
+  if (!targets.length) return toast('ยังไม่มีคลังอื่นให้ย้าย — เพิ่มแปลงก่อน');
+  openModal(`ย้าย ${s.name}`, `
+    <p class="small muted" style="margin-top:0">จาก <b>${esc(stockLoc(s))}</b> · มีอยู่ ${fmtNum(s.qty, 2)} ${esc(s.unit)}</p>
+    <div class="field-row">
+      <label class="field"><span>ไปที่คลัง</span><select name="to">${targets.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
+      <label class="field"><span>จำนวน (${esc(s.unit)})</span><input name="qty" type="number" min="0" max="${esc(s.qty)}" step="any" required></label>
+    </div>`,
+    fd => {
+      const q = Math.min(+fd.qty || 0, +s.qty || 0);
+      if (q <= 0) return false;
+      let t = DB.stock.find(x => x.id !== s.id && (x.plotId || '') === fd.to && x.name.trim().toLowerCase() === s.name.trim().toLowerCase() && x.unit === s.unit);
+      if (!t) { t = { id: uid(), name: s.name, cat: stockCat(s), plotId: fd.to, qty: 0, unit: s.unit, minQty: '', price: s.price ?? '', note: '' }; DB.stock.push(t); }
+      s.qty = Math.round((+s.qty - q) * 1000) / 1000;
+      t.qty = Math.round(((+t.qty || 0) + q) * 1000) / 1000;
+      toast(`ย้าย ${fmtNum(q, 2)} ${s.unit} ไป ${fd.to ? plotName(fd.to) : 'คลังกลาง'} แล้ว`);
+    }, 'ย้าย');
+};
 window.deleteStock = id => confirmDelete('รายการคลัง', () => { DB.stock = DB.stock.filter(x => x.id !== id); });
+window.guessStockCat = guessStockCat;
 
 // ---------- หน้า: คลังความรู้ ----------
 PAGES.knowledge = () => {
@@ -942,9 +1048,11 @@ window.loadSample = () => {
   const t = todayStr();
   const p1 = { id: uid(), name: 'แปลง A ทุเรียน', crop: 'ทุเรียน', variety: 'หมอนทอง', rai: 3, ngan: 2, wa: 0, trees: 80, spacing: '8×8 ม.', plantDate: addDays(t, -365 * 4), color: PLOT_COLORS[0], note: 'ดินร่วนปนทราย มีสระน้ำด้านทิศเหนือ' };
   const p2 = { id: uid(), name: 'แปลง B มะนาว', crop: 'มะนาว', variety: 'แป้นพิจิตร', rai: 1, ngan: 0, wa: 50, trees: 120, spacing: '4×4 ม.', plantDate: addDays(t, -365 * 2), color: PLOT_COLORS[1], note: '' };
-  const s1 = { id: uid(), name: 'ปุ๋ย 15-15-15', qty: 150, unit: 'กก.', minQty: 50, note: '' };
-  const s2 = { id: uid(), name: 'ปุ๋ยคอกมูลวัว', qty: 20, unit: 'กระสอบ', minQty: 10, note: '' };
-  DB.plots.push(p1, p2); DB.stock.push(s1, s2);
+  const s1 = { id: uid(), name: 'ปุ๋ย 15-15-15', cat: 'ปุ๋ยเคมี', plotId: '', qty: 150, unit: 'กก.', minQty: 50, price: 18, note: '' };
+  const s2 = { id: uid(), name: 'ปุ๋ยคอกมูลวัว', cat: 'ปุ๋ยอินทรีย์', plotId: p1.id, qty: 20, unit: 'กระสอบ', minQty: 10, price: 45, note: '' };
+  const s3 = { id: uid(), name: 'สารชีวภัณฑ์บิวเวอร์เรีย', cat: 'ยา/สารเคมี', plotId: p2.id, qty: 2, unit: 'ซอง', minQty: 3, price: 120, note: '' };
+  const s4 = { id: uid(), name: 'กรรไกรตัดกิ่ง', cat: 'อุปกรณ์/เครื่องมือ', plotId: '', qty: 3, unit: 'ชิ้น', minQty: '', price: 350, note: '' };
+  DB.plots.push(p1, p2); DB.stock.push(s1, s2, s3, s4);
   DB.activities.push(
     { id: uid(), date: addDays(t, -10), plotId: p1.id, type: 'ใส่ปุ๋ย', detail: '15-15-15 ต้นละ 1 กก.', stockId: s1.id, stockQty: 80, done: true },
     { id: uid(), date: addDays(t, -6), plotId: p2.id, type: 'ตัดแต่งกิ่ง', detail: 'ตัดกิ่งกระโดง', done: true },
