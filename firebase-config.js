@@ -11,4 +11,12 @@
  *   appId: "1:1234567890:web:abcdef"
  * };
  */
-window.SUAN_FIREBASE_CONFIG = null;
+window.SUAN_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAgvsNIdn5fIJpl16UvBDJ9lQOC3TvOKWg",
+  authDomain: "gardenfarm.firebaseapp.com",
+  projectId: "gardenfarm",
+  storageBucket: "gardenfarm.firebasestorage.app",
+  messagingSenderId: "773640307702",
+  appId: "1:773640307702:web:ee8c71e6a14622b4e1fdd7",
+  measurementId: "G-9MZPVGRJ3J"
+};
