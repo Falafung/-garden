@@ -1,0 +1,79 @@
+rules_version = '2';
+// กฎความปลอดภัยของสมุดสวน — วางทั้งหมดนี้ใน Firebase → Firestore Database → Rules แล้วกด Publish
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    // รายการสวนของแต่ละคน + ข้อมูลรูปแบบเดิม (ก่อนมีระบบกลุ่ม): เจ้าของบัญชีเท่านั้น
+    match /users/{uid}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /farms/{farmId} {
+      function farm() { return get(/databases/$(database)/documents/farms/$(farmId)).data; }
+      function isMember() { return signedIn() && request.auth.uid in farm().members; }
+      function myRole() { return farm().members[request.auth.uid].role; }
+      function canWrite() { return isMember() && myRole() in ['owner', 'editor']; }
+      function canMoney() { return isMember() && (myRole() == 'owner' || farm().members[request.auth.uid].money == true); }
+      function isOwner() { return isMember() && myRole() == 'owner'; }
+
+      // เจ้าของแก้ข้อมูลสวน/สมาชิกได้ แต่ห้ามเปลี่ยนเจ้าของ
+      function ownerUpdate() {
+        return signedIn()
+          && request.auth.uid in resource.data.members
+          && resource.data.members[request.auth.uid].role == 'owner'
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.members[resource.data.ownerUid].role == 'owner';
+      }
+      // เข้าร่วมด้วยลิงก์เชิญ: เพิ่มได้เฉพาะตัวเอง และสิทธิ์ต้องตรงกับลิงก์ที่ยังใช้ได้
+      function joinWithInvite() {
+        let me = request.resource.data.members[request.auth.uid];
+        let inv = get(/databases/$(database)/documents/farms/$(farmId)/invites/$(me.invite)).data;
+        let md = request.resource.data.members.diff(resource.data.members);
+        return signedIn()
+          && !(request.auth.uid in resource.data.members)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+          && md.addedKeys().hasOnly([request.auth.uid])
+          && md.changedKeys().size() == 0 && md.removedKeys().size() == 0
+          && me.role in ['editor', 'viewer']
+          && me.role == inv.role
+          && me.money == inv.money
+          && inv.revoked == false
+          && inv.expiresAt > request.time.toMillis();
+      }
+      // สมาชิก (ที่ไม่ใช่เจ้าของ) ออกจากสวนเองได้
+      function leave() {
+        let md = request.resource.data.members.diff(resource.data.members);
+        return signedIn()
+          && request.auth.uid in resource.data.members
+          && resource.data.members[request.auth.uid].role != 'owner'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+          && md.removedKeys().hasOnly([request.auth.uid])
+          && md.addedKeys().size() == 0 && md.changedKeys().size() == 0;
+      }
+
+      allow get, list: if signedIn() && request.auth.uid in resource.data.members;
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.members.keys().hasOnly([request.auth.uid])
+        && request.resource.data.members[request.auth.uid].role == 'owner';
+      allow update: if ownerUpdate() || joinWithInvite() || leave();
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+
+      match /records/{key} {
+        allow read: if isMember();
+        allow write: if canWrite();
+      }
+      match /money/{key} {
+        allow read: if canMoney();
+        allow write: if canMoney() && canWrite();
+      }
+      match /invites/{code} {
+        allow get: if signedIn();
+        allow list, delete: if isOwner();
+        allow create: if isOwner() && request.resource.data.role in ['editor', 'viewer'];
+      }
+    }
+  }
+}

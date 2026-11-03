@@ -67,6 +67,12 @@ window.replaceDB = (d, { push = false } = {}) => {
   if (!document.getElementById('modal').open) render();
 };
 
+// สิทธิ์ในสวนกลุ่ม (ถ้าไม่ได้ใช้ซิงก์ = ทำได้ทุกอย่าง)
+function canEdit() { return window.SYNC?.canEdit !== false; }
+function canMoney() { return window.SYNC?.canSeeMoney !== false; }
+function byMe() { return window.SYNC?.signedIn ? { by: window.SYNC.me } : {}; }
+function byTag(x) { return x?.by && window.SYNC?.isGroup ? ` <span class="small muted">· โดย ${esc(x.by)}</span>` : ''; }
+
 // ---------- utils ----------
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -248,7 +254,11 @@ function currentTab() { const t = location.hash.slice(1); return PAGES[t] ? t : 
 function render() {
   applyTheme();
   document.getElementById('farmName').textContent = DB.settings.farmName || 'สมุดสวน';
-  const tab = currentTab();
+  let tab = currentTab();
+  if (tab === 'finance' && !canMoney()) tab = 'dashboard';
+  document.body.classList.toggle('readonly', !canEdit());
+  const finTab = document.querySelector('#tabs a[data-tab=finance]');
+  if (finTab) finTab.hidden = !canMoney();
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === tab));
   const nDue = DB.activities.filter(a => !a.done && a.date <= todayStr()).length;
   const calTab = document.querySelector('#tabs a[data-tab=calendar]');
@@ -260,6 +270,7 @@ function render() {
     console.error(e);
     html = `<div class="card"><h2>⚠️ หน้านี้แสดงผลไม่สำเร็จ</h2><p>ลองรีเฟรชหน้าเว็บ (Ctrl + Shift + R) ถ้ายังไม่หาย ส่งข้อความนี้มาให้ผู้ดูแล:</p><pre class="small" style="white-space:pre-wrap">${esc(e.message)}</pre></div>`;
   }
+  if (!canEdit()) html = `<div class="ro-banner">👁 คุณมีสิทธิ์<b>ดูอย่างเดียว</b>ในสวนนี้ — ขอสิทธิ์แก้ไขได้จากเจ้าของสวน</div>` + html;
   document.getElementById('app').innerHTML = html;
 }
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
@@ -298,13 +309,13 @@ PAGES.dashboard = () => {
   return `
   <div class="page-head"><h1>ภาพรวมสวน</h1><div class="row">
     <button class="btn primary" onclick="editActivity()">+ บันทึกงาน</button>
-    <button class="btn" onclick="editFinance()">+ รายรับ/จ่าย</button></div></div>
+    ${canMoney() ? '<button class="btn edit-only" onclick="editFinance()">+ รายรับ/จ่าย</button>' : ''}</div></div>
   ${(() => { const due = dueReminders(); return due.length ? `<div class="card alert-card" style="margin-bottom:12px"><h2>🔔 แจ้งเตือน: ถึงกำหนดแล้ว ${due.length} งาน<a class="small" href="#calendar">ปฏิทิน →</a></h2><ul class="list">${due.slice(0, 6).map(reminderLi).join('')}</ul>${due.length > 6 ? `<a class="small" href="#calendar">ดูทั้งหมด ${due.length} งาน →</a>` : ''}</div>` : ''; })()}
   <div class="grid cols-4">
     <div class="card stat"><div class="label">แปลงปลูก</div><div class="value">${DB.plots.length}</div><div class="sub">${fmtNum(totalTrees)} ต้น</div></div>
     <div class="card stat"><div class="label">พื้นที่รวม</div><div class="value" style="font-size:1.25rem">${fmtArea(totalWa)}</div><div class="sub">${fmtNum(totalWa * SQM_PER_WA)} ตร.ม.</div></div>
-    <div class="card stat"><div class="label">รายรับ ${monthLabel(mk)}</div><div class="value">${fmtMoney(inc)}</div><div class="sub">รายจ่าย ${fmtMoney(exp)}</div></div>
-    <div class="card stat"><div class="label">คงเหลือสุทธิเดือนนี้</div><div class="value" style="color:${inc - exp >= 0 ? 'var(--good)' : 'var(--bad)'}">${inc - exp >= 0 ? '+' : ''}${fmtMoney(inc - exp)}</div><div class="sub">${finMonth.length} รายการ</div></div>
+    ${canMoney() ? `<div class="card stat"><div class="label">รายรับ ${monthLabel(mk)}</div><div class="value">${fmtMoney(inc)}</div><div class="sub">รายจ่าย ${fmtMoney(exp)}</div></div>
+    <div class="card stat"><div class="label">คงเหลือสุทธิเดือนนี้</div><div class="value" style="color:${inc - exp >= 0 ? 'var(--good)' : 'var(--bad)'}">${inc - exp >= 0 ? '+' : ''}${fmtMoney(inc - exp)}</div><div class="sub">${finMonth.length} รายการ</div></div>` : ''}
   </div>
   <div class="grid cols-2" style="margin-top:12px">
     <div class="card"><h2>🌦️ ลมฝนวันนี้</h2>${wxCard}</div>
@@ -322,7 +333,7 @@ function activityLi(a) {
   const status = a.done ? '' : a.date < today ? '<span class="pill bad">เลยกำหนด</span>' : a.date === today ? '<span class="pill warn">วันนี้</span>' : '<span class="pill">แผนงาน</span>';
   return `<li>
     <input type="checkbox" ${a.done ? 'checked' : ''} onchange="toggleDone('${a.id}')" title="ทำแล้ว" style="width:auto;margin-top:.3rem">
-    <div class="grow"><div><span class="dot" style="background:${plotColor(a.plotId)}"></span><b>${esc(a.type)}</b> · ${esc(plotName(a.plotId))} ${status}${a.time && !a.done ? ` <span class="small muted">⏰ ${esc(a.time)}</span>` : ''}${a.repeatDays ? ` <span class="small muted" title="ทำซ้ำ">🔁 ${a.repeatDays} วัน</span>` : ''}${a.fromId && !a.done ? ' <span class="small muted" title="การเตือนติดตามผล">🔔</span>' : ''}${rainWarn(a)}</div>
+    <div class="grow"><div><span class="dot" style="background:${plotColor(a.plotId)}"></span><b>${esc(a.type)}</b> · ${esc(plotName(a.plotId))}${byTag(a)} ${status}${a.time && !a.done ? ` <span class="small muted">⏰ ${esc(a.time)}</span>` : ''}${a.repeatDays ? ` <span class="small muted" title="ทำซ้ำ">🔁 ${a.repeatDays} วัน</span>` : ''}${a.fromId && !a.done ? ' <span class="small muted" title="การเตือนติดตามผล">🔔</span>' : ''}${rainWarn(a)}</div>
       <div class="small muted">${fmtDate(a.date)}${a.detail ? ' — ' + esc(a.detail) : ''}${a.stockId ? ` · ใช้ ${esc(DB.stock.find(s => s.id === a.stockId)?.name || '?')} ${fmtNum(a.stockQty, 2)}` : ''}</div></div>
     <button class="icon-btn" title="แก้ไข" onclick="editActivity('${a.id}')">✏️</button>
     <button class="icon-btn" title="ลบ" onclick="deleteActivity('${a.id}')">🗑️</button></li>`;
@@ -347,8 +358,8 @@ PAGES.plots = () => {
       ${p.note ? `<div class="meta" style="margin-top:.3rem">${esc(p.note)}</div>` : ''}
       <hr style="border:none;border-top:1px solid var(--border);margin:.6rem 0">
       <div class="small">งานล่าสุด: ${acts[0] ? `${esc(acts[0].type)} (${fmtDate(acts[0].date)})` : '<span class="muted">ยังไม่มี</span>'}</div>
-      <div class="small">รายรับ ${fmtMoney(inc)} · รายจ่าย ${fmtMoney(exp)}</div>
-      <div class="row" style="margin-top:.5rem"><button class="btn small" onclick="editActivity(null,'${p.id}')">+ บันทึกงาน</button><button class="btn small" onclick="editFinance(null,'${p.id}')">+ รายรับ/จ่าย</button></div>
+      ${canMoney() ? `<div class="small">รายรับ ${fmtMoney(inc)} · รายจ่าย ${fmtMoney(exp)}</div>` : ''}
+      <div class="row edit-only" style="margin-top:.5rem"><button class="btn small" onclick="editActivity(null,'${p.id}')">+ บันทึกงาน</button>${canMoney() ? `<button class="btn small" onclick="editFinance(null,'${p.id}')">+ รายรับ/จ่าย</button>` : ''}</div>
     </div>`;
   }).join('');
   const totalWa = DB.plots.reduce((a, p) => a + areaWa(p), 0);
@@ -431,7 +442,7 @@ PAGES.calendar = () => {
         <p class="small muted" style="margin:.5rem 0 0">กรอบทึบ = ทำแล้ว · 🔔 = การเตือน/แผนงานที่ยังไม่ทำ · สีตามแปลง</p>
       </div>
       <div class="grid">
-        <div class="card"><h2>${fmtDate(CAL.selected)}<button class="btn small" onclick="editActivity(null, CAL.plot, CAL.selected)">+ เพิ่ม</button></h2>
+        <div class="card"><h2>${fmtDate(CAL.selected)}<button class="btn small edit-only" onclick="editActivity(null, CAL.plot, CAL.selected)">+ เพิ่ม</button></h2>
           ${dayList.length ? `<ul class="list">${dayList.map(activityLi).join('')}</ul>` : '<div class="empty">ไม่มีบันทึกในวันนี้</div>'}</div>
         <div class="card"><h2>🔔 การเตือน<button class="btn small" onclick="icsAll()" title="ส่งออกการเตือนทั้งหมดเป็นไฟล์ .ics">📲 ลงปฏิทินมือถือ</button></h2>
           ${(() => { const list = DB.activities.filter(a => !a.done && a.date <= addDays(today, 14) && (!CAL.plot || a.plotId === CAL.plot)).sort((a, b) => a.date.localeCompare(b.date)); return list.length ? `<ul class="list">${list.slice(0, 12).map(reminderLi).join('')}</ul>` : '<div class="empty">ไม่มีการเตือนใน 14 วันข้างหน้า</div>'; })()}
@@ -591,7 +602,7 @@ window.editActivity = (id, plotId = '', date = '') => {
         if (wasDone && !a.done) unspawnNext(a);
         target = a;
       } else {
-        target = { id: uid(), ...rec };
+        target = { id: uid(), ...rec, ...byMe() };
         DB.activities.push(target);
         if (target.done) applyStock(target, -1);
       }
@@ -627,7 +638,7 @@ function reminderLi(a) {
   return `<li><div class="grow">
       <div><span class="dot" style="background:${plotColor(a.plotId)}"></span><b>${esc(a.type)}</b> · ${esc(plotName(a.plotId))} ${when}${a.time ? ` <span class="small muted">⏰ ${esc(a.time)}</span>` : ''}${a.repeatDays ? ' <span class="small muted">🔁</span>' : ''}${rainWarn(a)}</div>
       ${a.detail ? `<div class="small muted">${esc(a.detail)}</div>` : ''}
-      <div class="row" style="margin-top:.35rem;gap:.3rem">
+      <div class="row edit-only" style="margin-top:.35rem;gap:.3rem">
         <button class="btn small primary" onclick="toggleDone('${a.id}')">✓ ทำแล้ว</button>
         <button class="btn small" onclick="snooze('${a.id}',1)">เลื่อนพรุ่งนี้</button>
         <button class="btn small" onclick="snooze('${a.id}',3)">+3 วัน</button>
@@ -730,11 +741,11 @@ PAGES.harvest = () => {
   });
   return `<div class="page-head"><h1>ผลผลิต</h1><button class="btn primary" onclick="editHarvest()">+ บันทึกผลผลิต</button></div>
     <div class="card"><h2>สรุปตามแปลง</h2>
-      ${Object.keys(byPlot).length ? `<div class="table-wrap"><table><tr><th>แปลง</th><th class="num">ครั้ง</th><th class="num">ปริมาณรวม</th><th class="num">มูลค่ารวม</th><th class="num">ต่อต้น</th></tr>
-      ${Object.values(byPlot).map(r => { const p = plotById(r.plotId); return `<tr><td><span class="dot" style="background:${plotColor(r.plotId)}"></span>${esc(plotName(r.plotId))}</td><td class="num">${r.n}</td><td class="num">${fmtNum(r.qty, 2)} ${esc(r.unit)}</td><td class="num">${fmtMoney(r.value)}</td><td class="num">${p?.trees ? fmtNum(r.qty / p.trees, 2) + ' ' + esc(r.unit) : '-'}</td></tr>`; }).join('')}</table></div>` : '<div class="empty">ยังไม่มีบันทึกผลผลิต</div>'}</div>
+      ${Object.keys(byPlot).length ? `<div class="table-wrap"><table><tr><th>แปลง</th><th class="num">ครั้ง</th><th class="num">ปริมาณรวม</th>${canMoney() ? '<th class="num">มูลค่ารวม</th>' : ''}<th class="num">ต่อต้น</th></tr>
+      ${Object.values(byPlot).map(r => { const p = plotById(r.plotId); return `<tr><td><span class="dot" style="background:${plotColor(r.plotId)}"></span>${esc(plotName(r.plotId))}</td><td class="num">${r.n}</td><td class="num">${fmtNum(r.qty, 2)} ${esc(r.unit)}</td>${canMoney() ? `<td class="num">${fmtMoney(r.value)}</td>` : ''}<td class="num">${p?.trees ? fmtNum(r.qty / p.trees, 2) + ' ' + esc(r.unit) : '-'}</td></tr>`; }).join('')}</table></div>` : '<div class="empty">ยังไม่มีบันทึกผลผลิต</div>'}</div>
     <div class="card" style="margin-top:12px"><h2>รายการทั้งหมด</h2>
-      ${list.length ? `<div class="table-wrap"><table><tr><th>วันที่</th><th>แปลง</th><th>ผลผลิต</th><th class="num">ปริมาณ</th><th class="num">ราคา/หน่วย</th><th class="num">มูลค่า</th><th></th></tr>
-      ${list.map(h => `<tr><td>${fmtDate(h.date)}</td><td>${esc(plotName(h.plotId))}</td><td>${esc(h.product)}${h.grade ? ` <span class="pill">${esc(h.grade)}</span>` : ''}</td><td class="num">${fmtNum(h.qty, 2)} ${esc(h.unit)}</td><td class="num">${h.price ? fmtMoney(h.price) : '-'}</td><td class="num">${fmtMoney((+h.qty || 0) * (+h.price || 0))}</td>
+      ${list.length ? `<div class="table-wrap"><table><tr><th>วันที่</th><th>แปลง</th><th>ผลผลิต</th><th class="num">ปริมาณ</th>${canMoney() ? '<th class="num">ราคา/หน่วย</th><th class="num">มูลค่า</th>' : ''}<th></th></tr>
+      ${list.map(h => `<tr><td>${fmtDate(h.date)}</td><td>${esc(plotName(h.plotId))}</td><td>${esc(h.product)}${h.grade ? ` <span class="pill">${esc(h.grade)}</span>` : ''}</td><td class="num">${fmtNum(h.qty, 2)} ${esc(h.unit)}</td>${canMoney() ? `<td class="num">${h.price ? fmtMoney(h.price) : '-'}</td><td class="num">${fmtMoney((+h.qty || 0) * (+h.price || 0))}</td>` : ''}
       <td class="num"><button class="icon-btn" onclick="editHarvest('${h.id}')">✏️</button><button class="icon-btn" onclick="deleteHarvest('${h.id}')">🗑️</button></td></tr>`).join('')}</table></div>` : '<div class="empty">—</div>'}</div>`;
 };
 window.editHarvest = id => {
@@ -752,14 +763,14 @@ window.editHarvest = id => {
     <div class="field-row">
       <label class="field"><span>ปริมาณ</span><input name="qty" type="number" min="0" step="any" required value="${esc(h.qty ?? '')}"></label>
       <label class="field"><span>หน่วย</span><input name="unit" value="${esc(h.unit)}" list="unitList"><datalist id="unitList">${['กก.', 'ตัน', 'ลูก', 'หวี', 'เครือ', 'ตะกร้า'].map(u => `<option value="${u}">`).join('')}</datalist></label>
-      <label class="field"><span>ราคาขาย/หน่วย</span><input name="price" type="number" min="0" step="any" value="${esc(h.price ?? '')}"></label>
+      ${canMoney() ? `<label class="field"><span>ราคาขาย/หน่วย</span><input name="price" type="number" min="0" step="any" value="${esc(h.price ?? '')}"></label>` : ''}
     </div>
-    ${id ? '' : '<label class="field inline-check"><input type="checkbox" name="toFinance" checked> <span style="margin:0">ลงบัญชีรายรับอัตโนมัติ (ถ้ามีราคาขาย)</span></label>'}`,
+    ${id || !canMoney() ? '' : '<label class="field inline-check"><input type="checkbox" name="toFinance" checked> <span style="margin:0">ลงบัญชีรายรับอัตโนมัติ (ถ้ามีราคาขาย)</span></label>'}`,
     fd => {
-      const rec = { date: fd.date, plotId: fd.plotId, product: fd.product.trim(), grade: fd.grade.trim(), qty: +fd.qty || 0, unit: fd.unit.trim() || 'กก.', price: +fd.price || 0 };
+      const rec = { date: fd.date, plotId: fd.plotId, product: fd.product.trim(), grade: fd.grade.trim(), qty: +fd.qty || 0, unit: fd.unit.trim() || 'กก.', ...(canMoney() ? { price: +fd.price || 0 } : {}) };
       if (id) Object.assign(h, rec);
       else {
-        DB.harvests.push({ id: uid(), ...rec });
+        DB.harvests.push({ id: uid(), ...rec, ...byMe() });
         if (fd.toFinance && rec.price > 0) DB.finance.push({ id: uid(), date: rec.date, type: 'in', category: 'ขายผลผลิต', plotId: rec.plotId, amount: Math.round(rec.qty * rec.price * 100) / 100, note: `${rec.product} ${rec.grade} ${fmtNum(rec.qty, 2)} ${rec.unit} × ${rec.price}`.replace(/\s+/g, ' ') });
       }
       toast('บันทึกผลผลิตแล้ว');
@@ -805,7 +816,7 @@ PAGES.finance = () => {
     </div>
     <div class="card" style="margin-top:12px"><h2>รายการ (${list.length})</h2>
       ${list.length ? `<div class="table-wrap"><table><tr><th>วันที่</th><th>หมวด</th><th>แปลง</th><th>รายละเอียด</th><th class="num">จำนวนเงิน</th><th></th></tr>
-      ${list.map(f => `<tr><td>${fmtDate(f.date)}</td><td><span class="pill ${f.type === 'in' ? 'good' : ''}">${f.type === 'in' ? 'รับ' : 'จ่าย'}</span> ${esc(f.category)}</td><td>${esc(plotName(f.plotId))}</td><td>${esc(f.note)}</td>
+      ${list.map(f => `<tr><td>${fmtDate(f.date)}</td><td><span class="pill ${f.type === 'in' ? 'good' : ''}">${f.type === 'in' ? 'รับ' : 'จ่าย'}</span> ${esc(f.category)}</td><td>${esc(plotName(f.plotId))}</td><td>${esc(f.note)}${byTag(f)}</td>
       <td class="num" style="color:${f.type === 'in' ? 'var(--good)' : 'var(--text)'}">${f.type === 'in' ? '+' : '−'}${fmtMoney(f.amount)}</td>
       <td class="num"><button class="icon-btn" onclick="editFinance('${f.id}')">✏️</button><button class="icon-btn" onclick="deleteFinance('${f.id}')">🗑️</button></td></tr>`).join('')}</table></div>` : '<div class="empty">ไม่มีรายการ</div>'}</div>`;
 };
@@ -826,7 +837,7 @@ window.editFinance = (id, plotId = '', _unused = null, type = 'out') => {
     <label class="field"><span>รายละเอียด</span><input name="note" value="${esc(f.note)}" placeholder="เช่น ปุ๋ย 15-15-15 จำนวน 5 กระสอบ"></label>`,
     fd => {
       const rec = { date: fd.date, type: fd.type, category: fd.category, plotId: fd.plotId, amount: +fd.amount || 0, note: fd.note.trim() };
-      if (id) Object.assign(f, rec); else DB.finance.push({ id: uid(), ...rec });
+      if (id) Object.assign(f, rec); else DB.finance.push({ id: uid(), ...rec, ...byMe() });
       toast('บันทึกแล้ว');
     });
 };
@@ -902,8 +913,8 @@ PAGES.stock = () => {
     const val = STK.merge ? s.merged.reduce((b, x) => b + (+x.qty || 0) * (+x.price || 0), 0) : (+s.qty || 0) * (+s.price || 0);
     return `<tr><td><b>${esc(s.name)}</b> ${where}${s.note && !STK.merge ? `<div class="small muted">${esc(s.note)}</div>` : ''}</td>
       <td class="num">${fmtNum(s.qty, 2)} ${esc(s.unit)} ${low ? '<span class="pill warn">ใกล้หมด</span>' : ''}${s.minQty !== '' && s.minQty != null ? `<div class="small muted">เตือนเมื่อ ≤ ${fmtNum(s.minQty, 2)}</div>` : ''}</td>
-      <td class="num">${val ? fmtMoney(val) : '<span class="muted">-</span>'}</td>
-      <td class="num">${STK.merge ? '<span class="small muted">ปิด “รวมยอด” เพื่อแก้ไข</span>' : `<div class="row" style="justify-content:flex-end;gap:.3rem">
+      ${canMoney() ? `<td class="num">${val ? fmtMoney(val) : '<span class="muted">-</span>'}</td>` : ''}
+      <td class="num">${STK.merge ? '<span class="small muted">ปิด “รวมยอด” เพื่อแก้ไข</span>' : `<div class="row edit-only" style="justify-content:flex-end;gap:.3rem">
         <button class="btn small" onclick="adjustStock('${s.id}',1)">+ รับเข้า</button><button class="btn small" onclick="adjustStock('${s.id}',-1)">− เบิกออก</button>
         <button class="btn small" onclick="transferStock('${s.id}')" title="ย้ายไปคลังอื่น">⇄ ย้าย</button>
         <button class="icon-btn" onclick="editStock('${s.id}')" title="แก้ไข">✏️</button><button class="icon-btn" onclick="deleteStock('${s.id}')" title="ลบ">🗑️</button></div>`}</td></tr>`;
@@ -919,10 +930,10 @@ PAGES.stock = () => {
     <div class="grid cols-4" style="margin-bottom:12px">
       <div class="card stat"><div class="label">รายการ</div><div class="value">${list.length}</div><div class="sub">${cats.length} หมวด</div></div>
       <div class="card stat"><div class="label">ใกล้หมด</div><div class="value" style="color:${lowN ? 'var(--warn)' : 'inherit'}">${lowN}</div><div class="sub">รายการ</div></div>
-      <div class="card stat"><div class="label">มูลค่าคงคลังโดยประมาณ</div><div class="value">${fmtMoney(value(list))}</div><div class="sub">จากราคาต่อหน่วยที่ใส่ไว้</div></div>
+      ${canMoney() ? `<div class="card stat"><div class="label">มูลค่าคงคลังโดยประมาณ</div><div class="value">${fmtMoney(value(list))}</div><div class="sub">จากราคาต่อหน่วยที่ใส่ไว้</div></div>` : ''}
     </div>
-    ${cats.length ? cats.map(c => `<div class="card" style="margin-bottom:12px"><h2>${STOCK_CAT_ICON[c] || '📦'} ${esc(c)} <span class="small muted" style="font-weight:400">${byCat[c].length} รายการ · ${fmtMoney(value(byCat[c]))}</span></h2>
-      <div class="table-wrap"><table><tr><th>รายการ</th><th class="num">คงเหลือ</th><th class="num">มูลค่า</th><th></th></tr>
+    ${cats.length ? cats.map(c => `<div class="card" style="margin-bottom:12px"><h2>${STOCK_CAT_ICON[c] || '📦'} ${esc(c)} <span class="small muted" style="font-weight:400">${byCat[c].length} รายการ${canMoney() ? ' · ' + fmtMoney(value(byCat[c])) : ''}</span></h2>
+      <div class="table-wrap"><table><tr><th>รายการ</th><th class="num">คงเหลือ</th>${canMoney() ? '<th class="num">มูลค่า</th>' : ''}<th></th></tr>
       ${byCat[c].sort((a, b) => a.name.localeCompare(b.name, 'th')).map(row).join('')}</table></div></div>`).join('')
       : `<div class="card empty">${DB.stock.length ? 'ไม่พบรายการตามตัวกรอง' : 'ยังไม่มีรายการในคลัง — กด “เพิ่มรายการ”'}</div>`}
     <p class="muted small">เมื่อบันทึกงานและเลือก “วัสดุที่ใช้” ระบบจะตัดยอดให้อัตโนมัติ · คลังกลาง = ของที่ใช้ร่วมกันทุกแปลง · ใช้ “⇄ ย้าย” เพื่อแบ่งของจากคลังกลางไปคลังแปลง</p>`;
@@ -939,12 +950,12 @@ window.editStock = id => {
       <label class="field"><span>คงเหลือ</span><input name="qty" type="number" step="any" value="${esc(s.qty)}"></label>
       <label class="field"><span>หน่วย</span><input name="unit" value="${esc(s.unit)}" list="stockUnits"><datalist id="stockUnits">${STOCK_UNITS.map(u => `<option value="${u}">`).join('')}</datalist></label>
       <label class="field"><span>เตือนเมื่อเหลือ ≤</span><input name="minQty" type="number" step="any" value="${esc(s.minQty ?? '')}"></label>
-      <label class="field"><span>ราคา/หน่วย (บาท)</span><input name="price" type="number" min="0" step="any" value="${esc(s.price ?? '')}"></label>
+      ${canMoney() ? `<label class="field"><span>ราคา/หน่วย (บาท)</span><input name="price" type="number" min="0" step="any" value="${esc(s.price ?? '')}"></label>` : ''}
     </div>
     <label class="field"><span>หมายเหตุ</span><input name="note" value="${esc(s.note)}" placeholder="ร้านที่ซื้อ วันหมดอายุ ฯลฯ"></label>`,
     fd => {
       if (!fd.name.trim()) return false;
-      const rec = { name: fd.name.trim(), cat: fd.cat.trim() || guessStockCat(fd.name), plotId: fd.plotId, qty: +fd.qty || 0, unit: fd.unit.trim(), minQty: fd.minQty === '' ? '' : +fd.minQty, price: fd.price === '' ? '' : +fd.price, note: fd.note.trim() };
+      const rec = { name: fd.name.trim(), cat: fd.cat.trim() || guessStockCat(fd.name), plotId: fd.plotId, qty: +fd.qty || 0, unit: fd.unit.trim(), minQty: fd.minQty === '' ? '' : +fd.minQty, ...(canMoney() ? { price: fd.price === '' ? '' : +fd.price } : {}), note: fd.note.trim() };
       if (id) Object.assign(s, rec); else DB.stock.push({ id: uid(), ...rec });
     });
 };
@@ -952,7 +963,7 @@ window.adjustStock = (id, sign) => {
   const s = DB.stock.find(x => x.id === id);
   openModal(`${sign > 0 ? 'รับเข้า' : 'เบิกออก'}: ${s.name} (${stockLoc(s)})`, `
     <label class="field"><span>จำนวน (${esc(s.unit)})</span><input name="qty" type="number" min="0" step="any" required></label>
-    ${sign > 0 ? `<label class="field"><span>ราคารวม (บาท) — ถ้าใส่จะลงบัญชีรายจ่ายให้ และอัปเดตราคา/หน่วย</span><input name="cost" type="number" min="0" step="any"></label>` : ''}`,
+    ${sign > 0 && canMoney() ? `<label class="field"><span>ราคารวม (บาท) — ถ้าใส่จะลงบัญชีรายจ่ายให้ และอัปเดตราคา/หน่วย</span><input name="cost" type="number" min="0" step="any"></label>` : ''}`,
     fd => {
       const q = +fd.qty || 0;
       s.qty = Math.round(((+s.qty || 0) + sign * q) * 1000) / 1000;
@@ -1030,10 +1041,10 @@ PAGES.settings = () => `<div class="page-head"><h1>ตั้งค่า</h1></d
       <p class="small muted" style="margin:.4rem 0 0">เปิดไฟล์ที่ได้ในมือถือ → เพิ่มลงปฏิทิน (iPhone: ปฏิทิน, Android: Google Calendar) ถ้าเพิ่มการเตือนใหม่ ให้ส่งออกอีกครั้ง ระบบจะไม่สร้างรายการซ้ำในแอปปฏิทินส่วนใหญ่</p></div>
     <div class="card"><h2>สำรอง / ย้ายข้อมูล</h2>
       <p class="small muted" style="margin-top:0">${window.SYNC?.signedIn ? 'ข้อมูลซิงก์ขึ้นคลาวด์แล้ว ไฟล์สำรองนี้ใช้เก็บไว้เผื่อฉุกเฉิน (การนำเข้าจะเขียนทับข้อมูลในทุกเครื่องที่ซิงก์อยู่)' : 'ถ้ายังไม่เปิดซิงก์ ข้อมูลจะเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น ควรกด “ส่งออก” เก็บไว้เป็นระยะ'}</p>
-      <div class="row"><button class="btn primary" onclick="exportAll()">⬇ ส่งออกข้อมูล (.json)</button>
-        <label class="btn">⬆ นำเข้าข้อมูล<input type="file" accept=".json,application/json" hidden onchange="importAll(this.files[0])"></label></div>
+      <div class="row"><button class="btn primary ro-ok" onclick="exportAll()">⬇ ส่งออกข้อมูล (.json)</button>
+        <label class="btn edit-only">⬆ นำเข้าข้อมูล<input type="file" accept=".json,application/json" hidden onchange="importAll(this.files[0])"></label></div>
       <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0">
-      <div class="row"><button class="btn small" onclick="loadSample()">ใส่ข้อมูลตัวอย่าง</button><button class="btn small danger" onclick="resetAll()">ล้างข้อมูลทั้งหมด</button></div></div>
+      <div class="row edit-only"><button class="btn small" onclick="loadSample()">ใส่ข้อมูลตัวอย่าง</button><button class="btn small danger" onclick="resetAll()">ล้างข้อมูลทั้งหมด</button></div></div>
   </div>`;
 function download(name, text, type) {
   const a = document.createElement('a');
