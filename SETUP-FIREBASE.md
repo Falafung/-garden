@@ -43,20 +43,98 @@ const firebaseConfig = {
 1. เมนูซ้าย **Build → Firestore Database** → กด **Create database**
 2. Location เลือก **asia-southeast1 (Singapore)** (ใกล้ไทย เลือกแล้วเปลี่ยนไม่ได้)
 3. เลือก **Start in production mode** → **Create**
-4. ไปที่แท็บ **Rules** ลบของเดิมทั้งหมด แล้ววางกฎนี้ → กด **Publish**
+4. ไปที่แท็บ **Rules** (ลิงก์ตรง: https://console.firebase.google.com/project/gardenfarm/firestore/rules) ลบของเดิมทั้งหมด แล้ววางกฎด้านล่างนี้ **ทั้งหมด** → กด **Publish**
+   (กฎชุดเดียวกันอยู่ในไฟล์ [`firestore.rules`](firestore.rules) ด้วย)
 
 ```
 rules_version = '2';
+// กฎความปลอดภัยของสมุดสวน — วางทั้งหมดนี้ใน Firebase → Firestore Database → Rules แล้วกด Publish
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    // รายการสวนของแต่ละคน + ข้อมูลรูปแบบเดิม (ก่อนมีระบบกลุ่ม): เจ้าของบัญชีเท่านั้น
     match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /farms/{farmId} {
+      function farm() { return get(/databases/$(database)/documents/farms/$(farmId)).data; }
+      function isMember() { return signedIn() && request.auth.uid in farm().members; }
+      function myRole() { return farm().members[request.auth.uid].role; }
+      function canWrite() { return isMember() && myRole() in ['owner', 'editor']; }
+      function canMoney() { return isMember() && (myRole() == 'owner' || farm().members[request.auth.uid].money == true); }
+      function isOwner() { return isMember() && myRole() == 'owner'; }
+
+      // เจ้าของแก้ข้อมูลสวน/สมาชิกได้ แต่ห้ามเปลี่ยนเจ้าของ
+      function ownerUpdate() {
+        return signedIn()
+          && request.auth.uid in resource.data.members
+          && resource.data.members[request.auth.uid].role == 'owner'
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.members[resource.data.ownerUid].role == 'owner';
+      }
+      // เข้าร่วมด้วยลิงก์เชิญ: เพิ่มได้เฉพาะตัวเอง และสิทธิ์ต้องตรงกับลิงก์ที่ยังใช้ได้
+      function joinWithInvite() {
+        let me = request.resource.data.members[request.auth.uid];
+        let inv = get(/databases/$(database)/documents/farms/$(farmId)/invites/$(me.invite)).data;
+        let md = request.resource.data.members.diff(resource.data.members);
+        return signedIn()
+          && !(request.auth.uid in resource.data.members)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+          && md.addedKeys().hasOnly([request.auth.uid])
+          && md.changedKeys().size() == 0 && md.removedKeys().size() == 0
+          && me.role in ['editor', 'viewer']
+          && me.role == inv.role
+          && me.money == inv.money
+          && inv.revoked == false
+          && inv.expiresAt > request.time.toMillis();
+      }
+      // สมาชิก (ที่ไม่ใช่เจ้าของ) ออกจากสวนเองได้
+      function leave() {
+        let md = request.resource.data.members.diff(resource.data.members);
+        return signedIn()
+          && request.auth.uid in resource.data.members
+          && resource.data.members[request.auth.uid].role != 'owner'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+          && md.removedKeys().hasOnly([request.auth.uid])
+          && md.addedKeys().size() == 0 && md.changedKeys().size() == 0;
+      }
+
+      allow get, list: if signedIn() && request.auth.uid in resource.data.members;
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.members.keys().hasOnly([request.auth.uid])
+        && request.resource.data.members[request.auth.uid].role == 'owner';
+      allow update: if ownerUpdate() || joinWithInvite() || leave();
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+
+      match /records/{key} {
+        allow read: if isMember();
+        allow write: if canWrite();
+      }
+      match /money/{key} {
+        allow read: if canMoney();
+        allow write: if canMoney() && canWrite();
+      }
+      match /invites/{code} {
+        allow get: if signedIn();
+        allow list, delete: if isOwner();
+        allow create: if isOwner() && request.resource.data.role in ['editor', 'viewer'];
+      }
     }
   }
 }
 ```
 
-กฎนี้หมายความว่า **แต่ละบัญชี Google อ่าน/เขียนได้เฉพาะข้อมูลของตัวเองเท่านั้น**
+กฎนี้หมายความว่า
+- ข้อมูลสวนอ่านได้เฉพาะ **สมาชิกของสวนนั้น** · บันทึก/แก้ไขได้เฉพาะ **เจ้าของ** และสมาชิกสิทธิ์ **บันทึก/แก้ไขได้**
+- **บัญชีเงิน** และราคาต่างๆ อ่านได้เฉพาะคนที่เจ้าของให้สิทธิ์ “เห็นบัญชีเงิน” (ถูกซ่อนจริงที่เซิร์ฟเวอร์ ไม่ใช่แค่ซ่อนบนหน้าจอ)
+- เข้าร่วมสวนได้เฉพาะคนที่มี **ลิงก์เชิญที่ยังไม่หมดอายุ** และได้สิทธิ์ตามที่ลิงก์กำหนดเท่านั้น
+- เฉพาะ **เจ้าของ** เชิญ/นำสมาชิกออก/เปลี่ยนสิทธิ์ได้
+
+> ถ้าเคยวางกฎชุดเก่า (ที่มีแค่ `match /users/{uid}`) ให้วางชุดนี้แทน — ข้อมูลเดิมจะถูกย้ายเข้า “สวน” ของคุณอัตโนมัติเมื่อล็อกอินครั้งถัดไป
 
 ## 5. (ถ้าต้องการ) เปิด Google Drive
 
@@ -85,6 +163,20 @@ service cloud.firestore {
 
 ---
 
+## แชร์สวนให้คนอื่น (ครอบครัว คนงาน หุ้นส่วน)
+
+1. ไปที่ **ตั้งค่า → 👥 สมาชิกสวน**
+2. เลือกสิทธิ์: **บันทึก/แก้ไขได้** หรือ **ดูอย่างเดียว** และติ๊ก **เห็นบัญชีเงิน** ถ้าต้องการให้เห็นรายรับรายจ่ายและราคา
+3. กด **สร้างลิงก์เชิญ** → **คัดลอก** หรือ **แชร์** ส่งทาง LINE/อีเมล
+4. คนที่ได้รับเปิดลิงก์ → ล็อกอินด้วย Google → กด **เข้าร่วม** แล้วจะเห็นข้อมูลสวนทันที
+
+- ลิงก์ใช้ได้ 7 วัน และใช้ได้หลายคน ยกเลิกลิงก์ได้ทุกเมื่อ
+- เจ้าของเปลี่ยนสิทธิ์ หรือ **นำออก** ได้ทุกเมื่อ คนที่ถูกนำออกจะเห็นข้อมูลไม่ได้ทันที
+- ถ้าใครเป็นสมาชิกหลายสวน สลับสวนได้ที่ **ตั้งค่า → สวนที่เปิดอยู่**
+- รายการที่สมาชิกบันทึกจะมีชื่อผู้บันทึกกำกับไว้
+
+---
+
 ## คำถามที่พบบ่อย
 
 **ไม่มีอินเทอร์เน็ตในสวน บันทึกได้ไหม?**
@@ -94,7 +186,7 @@ service cloud.firestore {
 แพ็กเกจฟรีของ Firebase ให้พื้นที่ 1 GB และเขียนข้อมูลได้ 20,000 ครั้งต่อวัน ซึ่งเกินพอสำหรับสวนครอบครัว
 
 **ให้คนในครอบครัว/คนงานช่วยบันทึกได้ไหม?**
-ตอนนี้ข้อมูลผูกกับบัญชี Google เดียว ถ้าจะให้หลายคนใช้ข้อมูลชุดเดียวกัน ให้ล็อกอินบัญชีเดียวกัน หรือแจ้งผู้ดูแลเพื่อเพิ่มระบบแชร์สวน
+ได้ — ดูหัวข้อ “แชร์สวนให้คนอื่น” ด้านล่าง
 
 **ไอคอนสถานะหมายถึงอะไร?**
 ☁️✓ ซิงก์แล้ว · ☁️… กำลังซิงก์ · ☁️⚠ ออฟไลน์ (จะซิงก์ทีหลัง) · ☁️✕ มีปัญหา (กดดูรายละเอียดในหน้าตั้งค่า)

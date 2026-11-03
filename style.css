@@ -238,6 +238,13 @@ label.field.inline-check { display: flex; align-items: flex-start; gap: .5rem; }
 label.field.inline-check > input { margin-top: .3rem; flex: none; }
 label.field.inline-check > span { display: inline; color: var(--text); font-size: .95rem; }
 
+/* read-only member */
+.ro-banner { background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: 10px; padding: .55rem .8rem; margin-bottom: 12px; font-size: .95rem; }
+body.readonly main .btn.primary:not(.ro-ok), body.readonly main .icon-btn:not(.ro-ok), body.readonly main .edit-only,
+body.readonly #jnForm, body.readonly main .list li > input[type=checkbox] { display: none !important; }
+#tabs a[hidden] { display: none; }
+.members-card .list li { align-items: center; }
+
 /* stock locations */
 .loc-tabs { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
 .loc-tab { flex: none; font: inherit; cursor: pointer; padding: .4rem .8rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600; }

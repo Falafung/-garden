@@ -310,7 +310,7 @@ function journalLi(j) {
   const h = HEALTH.find(x => x.key === j.health), l = LEAF_COLORS.find(x => x.key === j.leafColor);
   const syms = (j.symptoms || []).map(k => SYMPTOMS.find(s => s.key === k)?.label).filter(Boolean);
   return `<li><div class="grow">
-      <div><b>${fmtDate(j.date)}</b> ${h ? `<span class="pill ${h.cls}">${h.icon} ${h.label}</span>` : ''} ${l ? `<span class="small"><span class="swatch" style="background:${l.color}"></span>${esc(l.label)}</span>` : ''}</div>
+      <div><b>${fmtDate(j.date)}</b>${byTag(j)} ${h ? `<span class="pill ${h.cls}">${h.icon} ${h.label}</span>` : ''} ${l ? `<span class="small"><span class="swatch" style="background:${l.color}"></span>${esc(l.label)}</span>` : ''}</div>
       ${syms.length ? `<div class="chips small" style="margin-top:.25rem">${syms.map(s => `<span class="pill warn">${esc(s)}</span>`).join('')}</div>` : ''}
       ${j.stages?.length ? `<div class="small muted">ระยะ: ${j.stages.map(esc).join(', ')}</div>` : ''}
       ${j.affected ? `<div class="small muted">พบอาการ ${fmtNum(j.affected)} ต้น</div>` : ''}
@@ -369,7 +369,7 @@ window.saveJournal = form => {
     Object.assign(target, rec, { photo: keepPhoto || '' });
     if (!rec.weather) target.weather = target.weather || null;
   } else {
-    target = { id: uid(), createdAt: Date.now(), ...rec, photo: JN.photo || '' };
+    target = { id: uid(), createdAt: Date.now(), ...rec, photo: JN.photo || '', ...byMe() };
     DB.journal.push(target);
     if (followup && (rec.symptoms.length || !LEAF_COLORS.find(l => l.key === rec.leafColor)?.ok)) {
       const syms = rec.symptoms.map(k => SYMPTOMS.find(s => s.key === k)?.label).filter(Boolean);
