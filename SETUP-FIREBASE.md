@@ -1,5 +1,8 @@
 # ตั้งค่าซิงก์ข้อมูลทุกเครื่อง (Firebase) + Google Drive
 
+> 🎬 **ดูวิดีโอคู่มือ (1 นาที 18 วินาที):** [https://falafung.github.io/-garden/docs/firebase-setup-video.html](https://falafung.github.io/-garden/docs/firebase-setup-video.html)
+> ทำตามไม่ได้ตรงไหน ลองดูวิดีโอนี้ก่อน — กดหยุด/เลื่อนดูทีละขั้นได้
+
 ทำ**ครั้งเดียว** ใช้เวลาประมาณ 10 นาที ฟรีทั้งหมด (แพ็กเกจ Spark ของ Firebase)
 หลังตั้งค่าเสร็จ ให้ล็อกอินด้วยบัญชี Google เดียวกันในมือถือ คอม และ iPad แล้วข้อมูลจะตรงกันอัตโนมัติ
 

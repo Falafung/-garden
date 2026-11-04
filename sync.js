@@ -637,7 +637,7 @@ function daysLeft(ms) { return Math.max(0, Math.ceil((ms - Date.now()) / 8640000
 // ---------- หน้าตั้งค่า ----------
 function cardHtml() {
   const { cfg, from } = getConfig();
-  const guide = `<a href="${SETUP_GUIDE}" target="_blank" rel="noopener">คู่มือตั้งค่า Firebase</a>`;
+  const guide = `<a href="${SETUP_GUIDE}" target="_blank" rel="noopener">คู่มือตั้งค่า Firebase</a> · <a href="docs/firebase-setup-video.html" target="_blank" rel="noopener">🎬 วิดีโอคู่มือ</a>`;
   const join = JSON.parse(sessionStorage.getItem(JOIN_KEY) || 'null');
   const joinNote = join ? `<div class="advice warn" style="margin-bottom:.6rem"><b>📩 คุณได้รับลิงก์เชิญเข้าร่วมสวน</b><div class="small">${cfg ? 'กด “เข้าสู่ระบบด้วย Google” ด้านล่างเพื่อเข้าร่วม' : 'ระบบซิงก์ยังไม่ได้ตั้งค่าในเว็บนี้'}</div></div>` : '';
   if (!cfg) {
