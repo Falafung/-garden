@@ -30,14 +30,14 @@ const DEFAULT_KB = [
 function emptyData() {
   return {
     settings: { farmName: 'สวนของฉัน', lat: null, lon: null, locName: '', theme: 'auto' },
-    plots: [], activities: [], finance: [], harvests: [], stock: [], journal: [],
+    plots: [], activities: [], finance: [], harvests: [], stock: [], journal: [], layouts: [],
     knowledge: DEFAULT_KB.map(k => ({ id: uid(), ...k })),
   };
 }
 function normalizeData(d) {
   const base = emptyData();
   const out = { ...base, ...d, settings: { ...base.settings, ...(d?.settings || {}) } };
-  for (const k of ['plots', 'activities', 'finance', 'harvests', 'stock', 'knowledge', 'journal']) if (!Array.isArray(out[k])) out[k] = base[k];
+  for (const k of ['plots', 'activities', 'finance', 'harvests', 'stock', 'knowledge', 'journal', 'layouts']) if (!Array.isArray(out[k])) out[k] = base[k];
   return out;
 }
 function loadData() {
@@ -359,7 +359,8 @@ PAGES.plots = () => {
       <hr style="border:none;border-top:1px solid var(--border);margin:.6rem 0">
       <div class="small">งานล่าสุด: ${acts[0] ? `${esc(acts[0].type)} (${fmtDate(acts[0].date)})` : '<span class="muted">ยังไม่มี</span>'}</div>
       ${canMoney() ? `<div class="small">รายรับ ${fmtMoney(inc)} · รายจ่าย ${fmtMoney(exp)}</div>` : ''}
-      <div class="row edit-only" style="margin-top:.5rem"><button class="btn small" onclick="editActivity(null,'${p.id}')">+ บันทึกงาน</button>${canMoney() ? `<button class="btn small" onclick="editFinance(null,'${p.id}')">+ รายรับ/จ่าย</button>` : ''}</div>
+      <div class="row" style="margin-top:.5rem"><button class="btn small ro-ok" onclick="lyOpen('${p.id}')">📐 ผังแปลง</button></div>
+      <div class="row edit-only" style="margin-top:.4rem"><button class="btn small" onclick="editActivity(null,'${p.id}')">+ บันทึกงาน</button>${canMoney() ? `<button class="btn small" onclick="editFinance(null,'${p.id}')">+ รายรับ/จ่าย</button>` : ''}</div>
     </div>`;
   }).join('');
   const totalWa = DB.plots.reduce((a, p) => a + areaWa(p), 0);
